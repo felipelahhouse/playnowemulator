@@ -5,7 +5,14 @@ import type { User } from '../types';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+// Verificar se as variáveis de ambiente estão configuradas
+if (!supabaseUrl || !supabaseKey) {
+  console.error('❌ ERRO: Variáveis de ambiente do Supabase não configuradas!');
+  console.error('Configure VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY');
+  console.error('No Cloudflare Pages: Settings > Environment variables');
+}
+
+export const supabase = createClient(supabaseUrl || '', supabaseKey || '');
 
 interface AuthContextType {
   user: User | null;
@@ -90,6 +97,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       setLoading(true);
       
+      // Verificar se as variáveis estão configuradas
+      if (!supabaseUrl || !supabaseKey) {
+        throw new Error('⚠️ Configuração incorreta. Entre em contato com o administrador.');
+      }
+      
       // Login no Supabase
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -169,6 +181,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signUp = async (email: string, password: string, username: string) => {
     try {
       setLoading(true);
+
+      // Verificar se as variáveis estão configuradas
+      if (!supabaseUrl || !supabaseKey) {
+        throw new Error('⚠️ Configuração incorreta. Entre em contato com o administrador.');
+      }
 
       // Verificar se username já existe (usando maybeSingle ao invés de single)
       const { data: existingUsername, error: checkError } = await supabase
