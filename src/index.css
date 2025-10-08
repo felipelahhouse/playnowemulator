@@ -2,6 +2,368 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ========================================
+   GAMING NEON THEME - PLAYNOWEMU
+   ======================================== */
+
+@layer base {
+  * {
+    @apply antialiased;
+  }
+
+  body {
+    @apply bg-black text-white;
+    background-image: 
+      radial-gradient(circle at 10% 20%, rgba(6, 182, 212, 0.05) 0%, transparent 50%),
+      radial-gradient(circle at 90% 80%, rgba(168, 85, 247, 0.05) 0%, transparent 50%),
+      radial-gradient(circle at 50% 50%, rgba(236, 72, 153, 0.03) 0%, transparent 50%);
+    background-attachment: fixed;
+  }
+
+  /* Smooth Scrollbar */
+  ::-webkit-scrollbar {
+    width: 12px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-gray-950;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gradient-to-b from-cyan-500 to-purple-500 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply from-cyan-400 to-purple-400;
+  }
+}
+
+@layer components {
+  /* ========================================
+     NEON GLOW EFFECTS
+     ======================================== */
+  .neon-cyan {
+    text-shadow: 
+      0 0 5px rgba(6, 182, 212, 0.5),
+      0 0 10px rgba(6, 182, 212, 0.3),
+      0 0 20px rgba(6, 182, 212, 0.2);
+  }
+
+  .neon-purple {
+    text-shadow: 
+      0 0 5px rgba(168, 85, 247, 0.5),
+      0 0 10px rgba(168, 85, 247, 0.3),
+      0 0 20px rgba(168, 85, 247, 0.2);
+  }
+
+  .neon-pink {
+    text-shadow: 
+      0 0 5px rgba(236, 72, 153, 0.5),
+      0 0 10px rgba(236, 72, 153, 0.3),
+      0 0 20px rgba(236, 72, 153, 0.2);
+  }
+
+  .glow-cyan {
+    box-shadow: 
+      0 0 10px rgba(6, 182, 212, 0.3),
+      0 0 20px rgba(6, 182, 212, 0.2),
+      0 0 30px rgba(6, 182, 212, 0.1);
+  }
+
+  .glow-purple {
+    box-shadow: 
+      0 0 10px rgba(168, 85, 247, 0.3),
+      0 0 20px rgba(168, 85, 247, 0.2),
+      0 0 30px rgba(168, 85, 247, 0.1);
+  }
+
+  .glow-pink {
+    box-shadow: 
+      0 0 10px rgba(236, 72, 153, 0.3),
+      0 0 20px rgba(236, 72, 153, 0.2),
+      0 0 30px rgba(236, 72, 153, 0.1);
+  }
+
+  /* ========================================
+     GRADIENT BORDERS
+     ======================================== */
+  .gradient-border {
+    position: relative;
+    background: linear-gradient(to right, #06b6d4, #a855f7, #ec4899);
+    padding: 2px;
+    border-radius: 1rem;
+  }
+
+  .gradient-border::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 1rem;
+    padding: 2px;
+    background: linear-gradient(to right, #06b6d4, #a855f7, #ec4899);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+  }
+
+  /* ========================================
+     GLASS MORPHISM
+     ======================================== */
+  .glass {
+    @apply bg-white/5 backdrop-blur-xl border border-white/10;
+  }
+
+  .glass-strong {
+    @apply bg-white/10 backdrop-blur-2xl border border-white/20;
+  }
+
+  /* ========================================
+     GAMING BUTTONS
+     ======================================== */
+  .btn-primary {
+    @apply px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold rounded-xl 
+           transition-all duration-300 hover:scale-105 hover:shadow-2xl hover:shadow-cyan-500/50
+           active:scale-95 relative overflow-hidden;
+  }
+
+  .btn-secondary {
+    @apply px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white font-bold rounded-xl 
+           transition-all duration-300 hover:scale-105 hover:shadow-2xl hover:shadow-purple-500/50
+           active:scale-95;
+  }
+
+  .btn-outline {
+    @apply px-6 py-3 border-2 border-cyan-500/50 text-cyan-400 font-bold rounded-xl 
+           transition-all duration-300 hover:bg-cyan-500/10 hover:border-cyan-400 
+           hover:shadow-lg hover:shadow-cyan-500/30 active:scale-95;
+  }
+
+  /* ========================================
+     CARD STYLES
+     ======================================== */
+  .card-gaming {
+    @apply bg-gradient-to-br from-gray-900 via-gray-900 to-black rounded-2xl border-2 border-gray-800
+           transition-all duration-500 hover:border-cyan-400/50 hover:shadow-2xl hover:shadow-cyan-400/20
+           hover:scale-105 hover:-translate-y-2;
+  }
+
+  /* ========================================
+     ANIMATIONS
+     ======================================== */
+  .animate-float {
+    animation: float 3s ease-in-out infinite;
+  }
+
+  .animate-pulse-slow {
+    animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  .animate-glow {
+    animation: glow 2s ease-in-out infinite;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.5s ease-out;
+  }
+
+  .animate-slide-down {
+    animation: slideDown 0.5s ease-out;
+  }
+
+  .animate-fade-in {
+    animation: fadeIn 0.5s ease-out;
+  }
+
+  .animate-scale-in {
+    animation: scaleIn 0.3s ease-out;
+  }
+
+  /* ========================================
+     INPUT STYLES
+     ======================================== */
+  .input-gaming {
+    @apply w-full px-4 py-3 bg-gray-950/50 border-2 border-gray-800 rounded-xl text-white 
+           placeholder-gray-500 focus:outline-none focus:border-cyan-400 
+           focus:shadow-lg focus:shadow-cyan-400/20 transition-all duration-300;
+  }
+
+  /* ========================================
+     GRID PATTERNS
+     ======================================== */
+  .grid-pattern {
+    background-image: 
+      linear-gradient(90deg, rgba(6, 182, 212, 0.05) 1px, transparent 1px),
+      linear-gradient(rgba(6, 182, 212, 0.05) 1px, transparent 1px);
+    background-size: 50px 50px;
+  }
+
+  .grid-pattern-dense {
+    background-image: 
+      linear-gradient(90deg, rgba(6, 182, 212, 0.03) 1px, transparent 1px),
+      linear-gradient(rgba(6, 182, 212, 0.03) 1px, transparent 1px);
+    background-size: 20px 20px;
+  }
+
+  /* ========================================
+     CYBER LINES
+     ======================================== */
+  .cyber-line-h {
+    @apply h-px bg-gradient-to-r from-transparent via-cyan-400 to-transparent;
+  }
+
+  .cyber-line-v {
+    @apply w-px bg-gradient-to-b from-transparent via-cyan-400 to-transparent;
+  }
+}
+
+@layer utilities {
+  /* Text Gradients */
+  .text-gradient-cyan {
+    @apply text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-400;
+  }
+
+  .text-gradient-purple {
+    @apply text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400;
+  }
+
+  .text-gradient-rainbow {
+    @apply text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-purple-400 to-pink-400;
+  }
+
+  /* Perspective */
+  .perspective {
+    perspective: 1000px;
+  }
+
+  .preserve-3d {
+    transform-style: preserve-3d;
+  }
+
+  /* Clamp Lines */
+  .line-clamp-1 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+  }
+
+  .line-clamp-2 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .line-clamp-3 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+}
+
+/* ========================================
+   KEYFRAME ANIMATIONS
+   ======================================== */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes shimmer {
+  0% { background-position: -1000px 0; }
+  100% { background-position: 1000px 0; }
+}
+
+@keyframes scan {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+/* ========================================
+   LOADING ANIMATIONS
+   ======================================== */
+.loading-dots span {
+  animation: loadingDots 1.4s infinite;
+}
+
+.loading-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.loading-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes loadingDots {
+  0%, 80%, 100% { opacity: 0; }
+  40% { opacity: 1; }
+}
+
+/* ========================================
+   RESPONSIVE UTILITIES
+   ======================================== */
+@media (max-width: 768px) {
+  .glass {
+    @apply bg-black/90;
+  }
+}
+
+/* ========================================
+   SELECTION STYLING
+   ======================================== */
+::selection {
+  @apply bg-cyan-500/30 text-cyan-100;
+}
+
+::-moz-selection {
+  @apply bg-cyan-500/30 text-cyan-100;
+}
+
 /* Espelhar vídeo da webcam */
 .mirror-video {
   transform: scaleX(-1);
