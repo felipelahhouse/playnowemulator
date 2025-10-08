@@ -30,98 +30,201 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Verificar se tem usuário salvo localmente
-    const savedUser = localStorage.getItem('current_user');
-    if (savedUser) {
-      try {
-        const userData = JSON.parse(savedUser);
-        setUser(userData);
-      } catch (e) {
-        localStorage.removeItem('current_user');
+    // Verificar sessão do Supabase
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        // Buscar dados do perfil do usuário
+        supabase
+          .from('users')
+          .select('*')
+          .eq('id', session.user.id)
+          .single()
+          .then(({ data }) => {
+            if (data) {
+              setUser({
+                id: data.id,
+                email: data.email,
+                username: data.username,
+                avatar_url: data.avatar_url,
+                is_online: true,
+                last_seen: new Date().toISOString(),
+                created_at: data.created_at
+              });
+            }
+          });
       }
-    }
-    setLoading(false);
+      setLoading(false);
+    });
+
+    // Listener para mudanças de autenticação
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        // Buscar dados do perfil quando logar
+        supabase
+          .from('users')
+          .select('*')
+          .eq('id', session.user.id)
+          .single()
+          .then(({ data }) => {
+            if (data) {
+              setUser({
+                id: data.id,
+                email: data.email,
+                username: data.username,
+                avatar_url: data.avatar_url,
+                is_online: true,
+                last_seen: new Date().toISOString(),
+                created_at: data.created_at
+              });
+            }
+          });
+      } else {
+        setUser(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const signIn = async (email: string, password: string) => {
     try {
-      // Sistema local de autenticação (prioritário para funcionar sempre)
-      const localUsers = JSON.parse(localStorage.getItem('local_users') || '{}');
+      setLoading(true);
       
-      // Verificar se usuário existe localmente
-      if (localUsers[email] && localUsers[email].password === password) {
-        const userData = localUsers[email];
-        const loggedUser: User = {
-          id: userData.id,
-          email: email,
-          username: userData.username,
-          avatar_url: undefined,
-          is_online: true,
-          last_seen: new Date().toISOString(),
-          created_at: userData.created_at
-        };
-        setUser(loggedUser);
-        localStorage.setItem('current_user', JSON.stringify(loggedUser));
-        return;
-      }
+      // Login no Supabase
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
 
-      throw new Error('Email ou senha inválidos. Crie uma conta primeiro.');
+      if (error) throw error;
+
+      if (data.user) {
+        // Buscar perfil do usuário
+        const { data: profile, error: profileError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', data.user.id)
+          .single();
+
+        if (profileError) throw profileError;
+
+        if (profile) {
+          // Atualizar status online
+          await supabase
+            .from('users')
+            .update({ 
+              is_online: true,
+              last_seen: new Date().toISOString()
+            })
+            .eq('id', data.user.id);
+
+          const loggedUser: User = {
+            id: profile.id,
+            email: profile.email,
+            username: profile.username,
+            avatar_url: profile.avatar_url,
+            is_online: true,
+            last_seen: new Date().toISOString(),
+            created_at: profile.created_at
+          };
+          
+          setUser(loggedUser);
+        }
+      }
     } catch (error: any) {
       console.error('Sign in error:', error);
-      throw error;
+      throw new Error(error.message || 'Erro ao fazer login');
+    } finally {
+      setLoading(false);
     }
   };
 
   const signUp = async (email: string, password: string, username: string) => {
     try {
-      // Sistema local de cadastro (sempre funciona)
-      const localUsers = JSON.parse(localStorage.getItem('local_users') || '{}');
-      
-      // Verificar se usuário já existe
-      if (localUsers[email]) {
-        throw new Error('Este email já está cadastrado. Faça login.');
+      setLoading(true);
+
+      // Verificar se username já existe
+      const { data: existingUsername } = await supabase
+        .from('users')
+        .select('username')
+        .eq('username', username)
+        .single();
+
+      if (existingUsername) {
+        throw new Error('Este nome de usuário já está em uso. Escolha outro.');
       }
 
-      // Criar novo usuário localmente
-      const newUser = {
-        id: 'user-' + Date.now(),
-        password: password,
-        username: username,
-        created_at: new Date().toISOString()
-      };
+      // Criar conta no Supabase Auth
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            username: username
+          }
+        }
+      });
 
-      localUsers[email] = newUser;
-      localStorage.setItem('local_users', JSON.stringify(localUsers));
+      if (error) throw error;
 
-      // Fazer login automaticamente
-      const loggedUser: User = {
-        id: newUser.id,
-        email: email,
-        username: username,
-        avatar_url: undefined,
-        is_online: true,
-        last_seen: new Date().toISOString(),
-        created_at: newUser.created_at
-      };
-      
-      setUser(loggedUser);
-      localStorage.setItem('current_user', JSON.stringify(loggedUser));
+      if (data.user) {
+        // Criar perfil do usuário na tabela users
+        const { error: profileError } = await supabase
+          .from('users')
+          .insert({
+            id: data.user.id,
+            email: email,
+            username: username,
+            is_online: true,
+            last_seen: new Date().toISOString(),
+            created_at: new Date().toISOString()
+          });
+
+        if (profileError) {
+          console.error('Profile creation error:', profileError);
+          throw new Error('Erro ao criar perfil do usuário');
+        }
+
+        // Fazer login automaticamente
+        const loggedUser: User = {
+          id: data.user.id,
+          email: email,
+          username: username,
+          avatar_url: undefined,
+          is_online: true,
+          last_seen: new Date().toISOString(),
+          created_at: new Date().toISOString()
+        };
+        
+        setUser(loggedUser);
+      }
     } catch (error: any) {
       console.error('Signup error:', error);
-      throw error;
+      throw new Error(error.message || 'Erro ao criar conta');
+    } finally {
+      setLoading(false);
     }
   };
 
   const signOut = async () => {
-    // Limpar dados locais
-    localStorage.removeItem('current_user');
-    setUser(null);
-    
-    // Fazer logout no Supabase
     try {
+      // Atualizar status para offline no banco
+      if (user?.id) {
+        await supabase
+          .from('users')
+          .update({ 
+            is_online: false,
+            last_seen: new Date().toISOString()
+          })
+          .eq('id', user.id);
+      }
+
+      // Fazer logout no Supabase
       await supabase.auth.signOut();
-    } catch (e) {
-      console.log('Supabase signout skipped:', e);
+      setUser(null);
+    } catch (error) {
+      console.error('Signout error:', error);
+      setUser(null);
     }
   };
 
