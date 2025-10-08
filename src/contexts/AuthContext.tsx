@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import type { User } from '../types';
 
@@ -35,33 +35,52 @@ export const useAuth = () => {
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const initializedRef = useRef(false);
 
   useEffect(() => {
+    // GUARD ABSOLUTO - se já inicializou, NÃO faz nada
+    if (initializedRef.current) {
+      console.log('✅ Auth já inicializado, ignorando');
+      return;
+    }
+    
+    console.log('🔄 Inicializando auth pela primeira vez...');
+    initializedRef.current = true;
+
     let mounted = true;
 
     // Verificar sessão inicial
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!mounted) return;
-      
-      if (session?.user) {
-        setUser({
-          id: session.user.id,
-          email: session.user.email || '',
-          username: session.user.user_metadata?.username || session.user.email?.split('@')[0] || 'User',
-          avatar_url: session.user.user_metadata?.avatar_url,
-          is_online: true,
-          last_seen: new Date().toISOString(),
-          created_at: session.user.created_at || new Date().toISOString()
-        });
-      }
-      setLoading(false);
-    }).catch(() => {
-      if (mounted) setLoading(false);
-    });
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        if (!mounted) return;
+        
+        console.log('📦 Sessão carregada:', session ? 'Logado' : 'Sem sessão');
+        
+        if (session?.user) {
+          setUser({
+            id: session.user.id,
+            email: session.user.email || '',
+            username: session.user.user_metadata?.username || session.user.email?.split('@')[0] || 'User',
+            avatar_url: session.user.user_metadata?.avatar_url,
+            is_online: true,
+            last_seen: new Date().toISOString(),
+            created_at: session.user.created_at || new Date().toISOString()
+          });
+        }
+        
+        setLoading(false);
+        console.log('✅ Loading finalizado');
+      })
+      .catch((error) => {
+        console.error('❌ Erro ao carregar sessão:', error);
+        if (mounted) setLoading(false);
+      });
 
     // Listener para mudanças de autenticação
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!mounted) return;
+      
+      console.log('🔔 Auth state changed:', _event, session ? 'Logado' : 'Deslogado');
       
       if (session?.user) {
         setUser({
@@ -79,10 +98,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     return () => {
+      console.log('🧹 Cleanup auth');
       mounted = false;
       subscription.unsubscribe();
     };
-  }, []); // Array vazio - roda UMA VEZ
+  }, []); // ARRAY VAZIO - NUNCA re-executa
 
   const signIn = async (email: string, password: string) => {
     try {
@@ -114,53 +134,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('Erro ao fazer login');
       }
 
-      // Buscar perfil do usuário
-      const { data: profile, error: profileError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', data.user.id)
-        .maybeSingle();
-
-      if (profileError && profileError.code !== 'PGRST116') {
-        console.error('Profile error:', profileError);
-        // Continuar mesmo sem perfil, pode ser criado depois
-      }
-
-      if (profile) {
-        // Atualizar status online
-        await supabase
-          .from('users')
-          .update({ 
-            is_online: true,
-            last_seen: new Date().toISOString()
-          })
-          .eq('id', data.user.id);
-
-        const loggedUser: User = {
-          id: profile.id,
-          email: profile.email,
-          username: profile.username,
-          avatar_url: profile.avatar_url,
-          is_online: true,
-          last_seen: new Date().toISOString(),
-          created_at: profile.created_at
-        };
-        
-        setUser(loggedUser);
-      } else {
-        // Se não tiver perfil, criar um básico
-        const loggedUser: User = {
-          id: data.user.id,
-          email: data.user.email || email,
-          username: data.user.user_metadata?.username || email.split('@')[0],
-          avatar_url: undefined,
-          is_online: true,
-          last_seen: new Date().toISOString(),
-          created_at: data.user.created_at || new Date().toISOString()
-        };
-        
-        setUser(loggedUser);
-      }
+      // onAuthStateChange vai atualizar o user automaticamente
     } catch (error: any) {
       console.error('Sign in error:', error);
       throw new Error(error.message || 'Erro ao fazer login');
@@ -178,20 +152,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('⚠️ Configuração incorreta. Entre em contato com o administrador.');
       }
 
-      // Verificar se username já existe (usando maybeSingle ao invés de single)
-      const { data: existingUsername, error: checkError } = await supabase
-        .from('users')
-        .select('username')
-        .eq('username', username)
-        .maybeSingle();
-
-      // Ignorar erro "relation does not exist" pois a tabela pode não existir ainda
-      if (!checkError || checkError.code !== 'PGRST116') {
-        if (existingUsername) {
-          throw new Error('Este nome de usuário já está em uso. Escolha outro.');
-        }
-      }
-
       // Criar conta no Supabase Auth
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -199,8 +159,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         options: {
           data: {
             username: username
-          },
-          emailRedirectTo: undefined // Não requer confirmação de email
+          }
         }
       });
 
@@ -210,35 +169,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('Erro ao criar usuário');
       }
 
-      // Criar perfil do usuário na tabela users
-      const { error: profileError } = await supabase
-        .from('users')
-        .insert({
-          id: data.user.id,
-          email: email,
-          username: username,
-          is_online: true,
-          last_seen: new Date().toISOString(),
-          created_at: new Date().toISOString()
-        });
-
-      if (profileError) {
-        console.error('Profile creation error:', profileError);
-        // Não falhar se o perfil não for criado (pode ser criado pelo trigger)
-      }
-
-      // Fazer login automaticamente
-      const loggedUser: User = {
-        id: data.user.id,
-        email: email,
-        username: username,
-        avatar_url: undefined,
-        is_online: true,
-        last_seen: new Date().toISOString(),
-        created_at: new Date().toISOString()
-      };
-      
-      setUser(loggedUser);
+      // onAuthStateChange vai atualizar o user automaticamente
     } catch (error: any) {
       console.error('Signup error:', error);
       throw new Error(error.message || 'Erro ao criar conta');
@@ -249,18 +180,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signOut = async () => {
     try {
-      // Atualizar status para offline no banco
-      if (user?.id) {
-        await supabase
-          .from('users')
-          .update({ 
-            is_online: false,
-            last_seen: new Date().toISOString()
-          })
-          .eq('id', user.id);
-      }
-
-      // Fazer logout no Supabase
       await supabase.auth.signOut();
       setUser(null);
     } catch (error) {
