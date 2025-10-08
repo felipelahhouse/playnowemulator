@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Users, Lock, Unlock, Play, Clock, Radio } from 'lucide-react';
+import { X, Plus, Users, Lock, Unlock, Play, Clock, Radio, Crown } from 'lucide-react';
 import { supabase } from '../../contexts/AuthContext';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -179,16 +179,16 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
         <div className="p-6 border-b border-gray-800">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-3xl font-black text-white mb-1">Multiplayer Lobbies</h2>
-              <p className="text-cyan-400 font-mono text-sm">// Join or create a game session</p>
+              <h2 className="text-3xl font-black text-white mb-1">Salas Multiplayer</h2>
+              <p className="text-cyan-400 font-mono text-sm">// Crie sua sala ou entre em uma existente</p>
             </div>
             <div className="flex items-center gap-4">
               <button
                 onClick={() => setShowCreateModal(true)}
-                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-cyan-500 to-purple-500 rounded-xl font-bold hover:shadow-xl hover:shadow-cyan-500/50 transition-all duration-300 hover:scale-105"
+                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl font-bold hover:shadow-xl hover:shadow-purple-500/50 transition-all duration-300 hover:scale-105"
               >
-                <Plus className="w-5 h-5" />
-                <span>Create Session</span>
+                <Crown className="w-5 h-5" />
+                <span>Criar Sala (HOST)</span>
               </button>
               <button
                 onClick={onClose}
@@ -210,14 +210,20 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
           ) : sessions.length === 0 ? (
             <div className="text-center py-20">
               <Radio className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-              <h3 className="text-2xl font-bold text-gray-400 mb-2">No Active Sessions</h3>
-              <p className="text-gray-500 mb-6">Be the first to create a multiplayer session!</p>
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="px-8 py-3 bg-gradient-to-r from-cyan-500 to-purple-500 rounded-xl font-bold hover:shadow-xl hover:shadow-cyan-500/50 transition-all duration-300"
-              >
-                Create Session
-              </button>
+              <h3 className="text-2xl font-bold text-gray-400 mb-2">Nenhuma Sala Ativa</h3>
+              <p className="text-gray-500 mb-6">Seja o primeiro a criar uma sala multiplayer!</p>
+              <div className="flex flex-col items-center gap-4">
+                <button
+                  onClick={() => setShowCreateModal(true)}
+                  className="px-8 py-4 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl font-bold hover:shadow-xl hover:shadow-purple-500/50 transition-all duration-300 flex items-center gap-2"
+                >
+                  <Crown className="w-5 h-5" />
+                  <span>Criar Sala como HOST</span>
+                </button>
+                <p className="text-gray-600 text-sm">
+                  Como HOST você cria a sala e outros jogadores podem entrar
+                </p>
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -254,8 +260,14 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
                           {session.host?.username?.[0]?.toUpperCase()}
                         </div>
                         <div>
-                          <p className="text-white text-sm font-bold">{session.host?.username}</p>
-                          <p className="text-gray-500 text-xs">Host</p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-white text-sm font-bold">{session.host?.username}</p>
+                            <span className="flex items-center gap-1 px-2 py-0.5 bg-yellow-500/20 border border-yellow-500/40 rounded-full">
+                              <Crown className="w-3 h-3 text-yellow-400" />
+                              <span className="text-yellow-400 text-xs font-bold">HOST</span>
+                            </span>
+                          </div>
+                          <p className="text-gray-500 text-xs">Criador da sala</p>
                         </div>
                       </div>
 
@@ -278,10 +290,11 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
                       <button
                         onClick={() => joinSession(session.id)}
                         disabled={session.current_players >= session.max_players}
-                        className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-cyan-500 to-purple-500 rounded-lg font-bold hover:shadow-lg hover:shadow-cyan-500/50 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-green-500 to-emerald-500 rounded-lg font-bold hover:shadow-lg hover:shadow-green-500/50 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:from-gray-600 disabled:to-gray-700"
+                        title={session.current_players >= session.max_players ? "Sala cheia" : "Entrar como jogador"}
                       >
                         <Play className="w-4 h-4" />
-                        <span>Join</span>
+                        <span>{session.current_players >= session.max_players ? 'Cheia' : 'Entrar'}</span>
                       </button>
                     </div>
                   </div>
@@ -298,7 +311,13 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-400 via-purple-400 to-pink-400" />
 
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-2xl font-black text-white">Create Game Session</h3>
+              <div>
+                <h3 className="text-2xl font-black text-white flex items-center gap-2">
+                  <Crown className="w-6 h-6 text-yellow-400" />
+                  Criar Sala Multiplayer
+                </h3>
+                <p className="text-gray-400 text-sm mt-1">Você será o HOST da sala</p>
+              </div>
               <button
                 onClick={() => setShowCreateModal(false)}
                 className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
@@ -309,24 +328,24 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-bold text-gray-400 mb-2">Session Name</label>
+                <label className="block text-sm font-bold text-gray-400 mb-2">Nome da Sala</label>
                 <input
                   type="text"
                   value={newSession.session_name}
                   onChange={(e) => setNewSession({ ...newSession, session_name: e.target.value })}
-                  placeholder="My Awesome Game"
+                  placeholder="Minha Sala Épica"
                   className="w-full px-4 py-3 bg-gray-800 text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-400"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-gray-400 mb-2">Select Game</label>
+                <label className="block text-sm font-bold text-gray-400 mb-2">Selecionar Jogo</label>
                 <select
                   value={newSession.game_id}
                   onChange={(e) => setNewSession({ ...newSession, game_id: e.target.value })}
                   className="w-full px-4 py-3 bg-gray-800 text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-400"
                 >
-                  <option value="">Choose a game...</option>
+                  <option value="">Escolha um jogo...</option>
                   {games.map((game) => (
                     <option key={game.id} value={game.id}>
                       {game.title}
@@ -336,7 +355,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-gray-400 mb-2">Max Players</label>
+                <label className="block text-sm font-bold text-gray-400 mb-2">Máximo de Jogadores</label>
                 <select
                   value={newSession.max_players}
                   onChange={(e) => setNewSession({ ...newSession, max_players: parseInt(e.target.value) })}
@@ -344,7 +363,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
                 >
                   {[2, 3, 4, 5, 6, 7, 8].map((num) => (
                     <option key={num} value={num}>
-                      {num} Players
+                      {num} Jogadores
                     </option>
                   ))}
                 </select>
@@ -359,16 +378,17 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
                   className="w-5 h-5 accent-cyan-500"
                 />
                 <label htmlFor="is_public" className="text-white font-medium">
-                  Public Session (anyone can join)
+                  Sala Pública (qualquer um pode entrar)
                 </label>
               </div>
 
               <button
                 onClick={createSession}
                 disabled={!newSession.game_id || !newSession.session_name}
-                className="w-full py-4 bg-gradient-to-r from-cyan-500 to-purple-500 rounded-xl font-bold text-lg hover:shadow-xl hover:shadow-cyan-500/50 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-4 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl font-bold text-lg hover:shadow-xl hover:shadow-purple-500/50 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                Create Session
+                <Crown className="w-5 h-5" />
+                Criar Sala como HOST
               </button>
             </div>
           </div>

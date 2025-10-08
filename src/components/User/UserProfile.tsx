@@ -1,6 +1,6 @@
 import React from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { X, Trophy, Gamepad2, Clock, Star } from 'lucide-react';
+import { X, Trophy, Gamepad2, Clock, Star, LogOut } from 'lucide-react';
 
 interface UserProfileProps {
   isOpen: boolean;
@@ -8,9 +8,18 @@ interface UserProfileProps {
 }
 
 const UserProfile: React.FC<UserProfileProps> = ({ isOpen, onClose }) => {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
 
   if (!isOpen || !user) return null;
+
+  const handleLogout = async () => {
+    try {
+      await signOut();
+      onClose();
+    } catch (error) {
+      console.error('Erro ao fazer logout:', error);
+    }
+  };
 
   const mockStats = {
     gamesPlayed: 42,
@@ -114,6 +123,17 @@ const UserProfile: React.FC<UserProfileProps> = ({ isOpen, onClose }) => {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Footer com botão de Logout */}
+        <div className="p-6 border-t border-gray-700/50">
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 text-white font-semibold rounded-xl transition-all duration-200 shadow-lg hover:shadow-red-500/50"
+          >
+            <LogOut className="w-5 h-5" />
+            Sair da Conta
+          </button>
         </div>
       </div>
     </div>
