@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth, supabase } from '../../contexts/AuthContext';
 import { Gamepad as GamepadIcon, User, Settings, LogOut, Trophy, Users, Menu, X } from 'lucide-react';
 import UserProfile from '../User/UserProfile';
 import SettingsModal from '../Settings/SettingsModal';
@@ -10,6 +10,34 @@ const Header: React.FC = () => {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [onlineCount, setOnlineCount] = useState(0);
+
+  // Track online users with Supabase Realtime
+  useEffect(() => {
+    const channel = supabase.channel('online-users');
+
+    channel
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.presenceState();
+        const count = Object.keys(state).length;
+        setOnlineCount(count);
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          // Track this user as online
+          await channel.track({
+            user_id: user?.id || 'anonymous',
+            username: user?.username || 'Guest',
+            online_at: new Date().toISOString()
+          });
+        }
+      });
+
+    return () => {
+      channel.untrack();
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -65,6 +93,19 @@ const Header: React.FC = () => {
             <div className="flex items-center gap-4">
               {user ? (
                 <>
+                  {/* Online Players Counter */}
+                  <div className="hidden md:flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 backdrop-blur-sm rounded-full border border-cyan-500/30 hover:border-cyan-400/50 transition-all duration-300">
+                    <Users className="w-4 h-4 text-cyan-400" />
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-cyan-400 text-xl font-black">{onlineCount}</span>
+                      <span className="text-gray-400 text-sm font-bold">Online</span>
+                    </div>
+                    <div className="relative">
+                      <div className="w-2 h-2 bg-cyan-400 rounded-full" />
+                      <div className="absolute inset-0 w-2 h-2 bg-cyan-400 rounded-full animate-ping" />
+                    </div>
+                  </div>
+
                   {/* Settings Button */}
                   <button
                     onClick={() => setShowSettings(true)}
