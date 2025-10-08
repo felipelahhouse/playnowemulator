@@ -130,6 +130,21 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
       const session = sessions.find(s => s.id === sessionId);
       if (!session) return;
 
+      // Verificar se o jogador já está na sessão
+      const { data: existingPlayer } = await supabase
+        .from('session_players')
+        .select('*')
+        .eq('session_id', sessionId)
+        .eq('user_id', user.id)
+        .single();
+
+      // Se já está na sessão, apenas abre sem adicionar novamente
+      if (existingPlayer) {
+        onJoinSession(sessionId);
+        return;
+      }
+
+      // Adicionar jogador à sessão
       await supabase.from('session_players').insert({
         session_id: sessionId,
         user_id: user.id,

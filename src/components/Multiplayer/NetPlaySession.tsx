@@ -73,11 +73,13 @@ const NetPlaySession: React.FC<NetPlaySessionProps> = ({
         
         // Separar players e espectadores
         const playersList: Player[] = [];
+        const seenPlayers = new Set<string>();
         let spectatorCount = 0;
 
         Object.values(state).forEach((presences: any) => {
           const presence = presences[0];
-          if (presence.role === 'player') {
+          if (presence.role === 'player' && !seenPlayers.has(presence.user_id)) {
+            seenPlayers.add(presence.user_id);
             playersList.push({
               id: presence.user_id,
               username: presence.username,
@@ -151,6 +153,33 @@ const NetPlaySession: React.FC<NetPlaySessionProps> = ({
 
     return () => {
       clearInterval(pingInterval);
+      
+      // Remover jogador da sessão ao sair
+      const cleanup = async () => {
+        try {
+          await channel.untrack();
+          await supabase
+            .from('session_players')
+            .delete()
+            .eq('session_id', sessionId)
+            .eq('user_id', user?.id);
+          
+          // Atualizar contagem de jogadores
+          const { data: remainingPlayers } = await supabase
+            .from('session_players')
+            .select('*', { count: 'exact' })
+            .eq('session_id', sessionId);
+          
+          await supabase
+            .from('game_sessions')
+            .update({ current_players: remainingPlayers?.length || 0 })
+            .eq('id', sessionId);
+        } catch (error) {
+          console.error('Error cleaning up session:', error);
+        }
+      };
+      
+      cleanup();
       channel.unsubscribe();
     };
   }, [sessionId, user, isHost, connected]);
@@ -217,8 +246,12 @@ const NetPlaySession: React.FC<NetPlaySessionProps> = ({
     // Enviar input para o emulador
     if (iframeRef.current?.contentWindow) {
       iframeRef.current.contentWindow.postMessage({
-        type: 'netplay-input',
-        ...gameState
+        messageType: 'netplay-input',
+        type: gameState.type,
+        player_id: gameState.player_id,
+        data: gameState.data,
+        frame: gameState.frame,
+        timestamp: gameState.timestamp
       }, '*');
     }
   };
@@ -230,8 +263,12 @@ const NetPlaySession: React.FC<NetPlaySessionProps> = ({
     // Enviar estado de sincronização para o emulador
     if (iframeRef.current?.contentWindow) {
       iframeRef.current.contentWindow.postMessage({
-        type: 'netplay-sync',
-        ...gameState
+        messageType: 'netplay-sync',
+        type: gameState.type,
+        player_id: gameState.player_id,
+        data: gameState.data,
+        frame: gameState.frame,
+        timestamp: gameState.timestamp
       }, '*');
     }
   };
