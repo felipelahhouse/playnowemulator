@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { Eye, Play, Radio, Clock } from 'lucide-react';
+import { Eye, Play, Radio, Clock, Gamepad2 } from 'lucide-react';
 import { supabase } from '../../contexts/AuthContext';
+import StreamViewer from './StreamViewer';
 
 interface LiveStream {
   id: string;
-  streamer_id: string;
+  user_id: string;
   game_id: string;
   title: string;
-  description: string;
   viewer_count: number;
   is_live: boolean;
   started_at: string;
@@ -16,50 +16,62 @@ interface LiveStream {
   };
   game?: {
     title: string;
-    thumbnail_url: string;
+    image_url?: string;
   };
 }
 
 interface LiveStreamGridProps {
-  onStreamClick: (stream: LiveStream) => void;
+  onStreamClick?: (stream: LiveStream) => void;
 }
 
 const LiveStreamGrid: React.FC<LiveStreamGridProps> = ({ onStreamClick }) => {
   const [streams, setStreams] = useState<LiveStream[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedStream, setSelectedStream] = useState<LiveStream | null>(null);
 
   useEffect(() => {
     fetchLiveStreams();
 
+    // Realtime para detectar mudanças automaticamente
     const channel = supabase
-      .channel('live_streams_changes')
+      .channel('streams_realtime')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'live_streams' },
-        () => {
+        { event: '*', schema: 'public', table: 'streams' },
+        (payload) => {
+          console.log('🔴 Stream update detected:', payload);
           fetchLiveStreams();
         }
       )
       .subscribe();
 
+    // Atualizar viewer count a cada 5 segundos
+    const interval = setInterval(fetchLiveStreams, 5000);
+
     return () => {
       supabase.removeChannel(channel);
+      clearInterval(interval);
     };
   }, []);
 
   const fetchLiveStreams = async () => {
     try {
       const { data, error } = await supabase
-        .from('live_streams')
+        .from('streams')
         .select(`
           *,
-          streamer:streamer_id(username),
-          game:game_id(title, thumbnail_url)
+          streamer:user_id(username),
+          game:game_id(title, image_url)
         `)
         .eq('is_live', true)
         .order('viewer_count', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching streams:', error);
+        return;
+      }
+      
+      console.log('✅ Streams loaded:', data?.length || 0);
       setStreams(data || []);
     } catch (error) {
       console.error('Error fetching streams:', error);
@@ -132,13 +144,13 @@ const LiveStreamGrid: React.FC<LiveStreamGridProps> = ({ onStreamClick }) => {
               {streams.map((stream) => (
                 <div
                   key={stream.id}
-                  onClick={() => onStreamClick(stream)}
+                  onClick={() => onStreamClick?.(stream)}
                   className="group cursor-pointer"
                 >
                   <div className="relative aspect-video rounded-xl overflow-hidden mb-3 bg-gray-900">
-                    {stream.game?.thumbnail_url ? (
+                    {stream.game?.image_url ? (
                       <img
-                        src={stream.game.thumbnail_url}
+                        src={stream.game.image_url}
                         alt={stream.title}
                         className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
                       />
