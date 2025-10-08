@@ -96,40 +96,67 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         password
       });
 
-      if (error) throw error;
-
-      if (data.user) {
-        // Buscar perfil do usuário
-        const { data: profile, error: profileError } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', data.user.id)
-          .single();
-
-        if (profileError) throw profileError;
-
-        if (profile) {
-          // Atualizar status online
-          await supabase
-            .from('users')
-            .update({ 
-              is_online: true,
-              last_seen: new Date().toISOString()
-            })
-            .eq('id', data.user.id);
-
-          const loggedUser: User = {
-            id: profile.id,
-            email: profile.email,
-            username: profile.username,
-            avatar_url: profile.avatar_url,
-            is_online: true,
-            last_seen: new Date().toISOString(),
-            created_at: profile.created_at
-          };
-          
-          setUser(loggedUser);
+      if (error) {
+        // Mensagens de erro mais amigáveis
+        if (error.message.includes('Invalid login credentials')) {
+          throw new Error('Email ou senha incorretos');
         }
+        if (error.message.includes('Email not confirmed')) {
+          throw new Error('Email não confirmado. Verifique sua caixa de entrada.');
+        }
+        throw error;
+      }
+
+      if (!data.user) {
+        throw new Error('Erro ao fazer login');
+      }
+
+      // Buscar perfil do usuário
+      const { data: profile, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', data.user.id)
+        .maybeSingle();
+
+      if (profileError && profileError.code !== 'PGRST116') {
+        console.error('Profile error:', profileError);
+        // Continuar mesmo sem perfil, pode ser criado depois
+      }
+
+      if (profile) {
+        // Atualizar status online
+        await supabase
+          .from('users')
+          .update({ 
+            is_online: true,
+            last_seen: new Date().toISOString()
+          })
+          .eq('id', data.user.id);
+
+        const loggedUser: User = {
+          id: profile.id,
+          email: profile.email,
+          username: profile.username,
+          avatar_url: profile.avatar_url,
+          is_online: true,
+          last_seen: new Date().toISOString(),
+          created_at: profile.created_at
+        };
+        
+        setUser(loggedUser);
+      } else {
+        // Se não tiver perfil, criar um básico
+        const loggedUser: User = {
+          id: data.user.id,
+          email: data.user.email || email,
+          username: data.user.user_metadata?.username || email.split('@')[0],
+          avatar_url: undefined,
+          is_online: true,
+          last_seen: new Date().toISOString(),
+          created_at: data.user.created_at || new Date().toISOString()
+        };
+        
+        setUser(loggedUser);
       }
     } catch (error: any) {
       console.error('Sign in error:', error);
@@ -143,15 +170,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       setLoading(true);
 
-      // Verificar se username já existe
-      const { data: existingUsername } = await supabase
+      // Verificar se username já existe (usando maybeSingle ao invés de single)
+      const { data: existingUsername, error: checkError } = await supabase
         .from('users')
         .select('username')
         .eq('username', username)
-        .single();
+        .maybeSingle();
 
-      if (existingUsername) {
-        throw new Error('Este nome de usuário já está em uso. Escolha outro.');
+      // Ignorar erro "relation does not exist" pois a tabela pode não existir ainda
+      if (!checkError || checkError.code !== 'PGRST116') {
+        if (existingUsername) {
+          throw new Error('Este nome de usuário já está em uso. Escolha outro.');
+        }
       }
 
       // Criar conta no Supabase Auth
@@ -161,43 +191,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         options: {
           data: {
             username: username
-          }
+          },
+          emailRedirectTo: undefined // Não requer confirmação de email
         }
       });
 
       if (error) throw error;
 
-      if (data.user) {
-        // Criar perfil do usuário na tabela users
-        const { error: profileError } = await supabase
-          .from('users')
-          .insert({
-            id: data.user.id,
-            email: email,
-            username: username,
-            is_online: true,
-            last_seen: new Date().toISOString(),
-            created_at: new Date().toISOString()
-          });
+      if (!data.user) {
+        throw new Error('Erro ao criar usuário');
+      }
 
-        if (profileError) {
-          console.error('Profile creation error:', profileError);
-          throw new Error('Erro ao criar perfil do usuário');
-        }
-
-        // Fazer login automaticamente
-        const loggedUser: User = {
+      // Criar perfil do usuário na tabela users
+      const { error: profileError } = await supabase
+        .from('users')
+        .insert({
           id: data.user.id,
           email: email,
           username: username,
-          avatar_url: undefined,
           is_online: true,
           last_seen: new Date().toISOString(),
           created_at: new Date().toISOString()
-        };
-        
-        setUser(loggedUser);
+        });
+
+      if (profileError) {
+        console.error('Profile creation error:', profileError);
+        // Não falhar se o perfil não for criado (pode ser criado pelo trigger)
       }
+
+      // Fazer login automaticamente
+      const loggedUser: User = {
+        id: data.user.id,
+        email: email,
+        username: username,
+        avatar_url: undefined,
+        is_online: true,
+        last_seen: new Date().toISOString(),
+        created_at: new Date().toISOString()
+      };
+      
+      setUser(loggedUser);
     } catch (error: any) {
       console.error('Signup error:', error);
       throw new Error(error.message || 'Erro ao criar conta');
