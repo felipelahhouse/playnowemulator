@@ -35,111 +35,54 @@ export const useAuth = () => {
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
-    // Evitar reinicialização múltipla
-    if (initialized) return;
-    
-    // Se as variáveis não estiverem configuradas, não travar no loading
-    if (!supabaseUrl || !supabaseKey) {
-      console.error('❌ Variáveis de ambiente não configuradas');
-      setLoading(false);
-      setInitialized(true);
-      return;
-    }
+    let mounted = true;
 
-    // Verificar sessão do Supabase ao carregar
-    const initializeAuth = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        if (session?.user) {
-          // Buscar dados do perfil do usuário
-          const { data, error } = await supabase
-            .from('users')
-            .select('*')
-            .eq('id', session.user.id)
-            .maybeSingle();
-
-          // Se a tabela não existir, apenas usar os dados da sessão
-          if (error && error.code === 'PGRST116') {
-            console.warn('Tabela users não existe, usando dados da sessão');
-            setUser({
-              id: session.user.id,
-              email: session.user.email || '',
-              username: session.user.user_metadata?.username || session.user.email?.split('@')[0] || 'User',
-              avatar_url: undefined,
-              is_online: true,
-              last_seen: new Date().toISOString(),
-              created_at: session.user.created_at || new Date().toISOString()
-            });
-            setLoading(false);
-            setInitialized(true);
-            return;
-          }
-
-          if (data) {
-            // Atualizar status online (não bloqueante)
-            supabase
-              .from('users')
-              .update({ 
-                is_online: true,
-                last_seen: new Date().toISOString()
-              })
-              .eq('id', session.user.id);
-
-            setUser({
-              id: data.id,
-              email: data.email,
-              username: data.username,
-              avatar_url: data.avatar_url,
-              is_online: true,
-              last_seen: new Date().toISOString(),
-              created_at: data.created_at
-            });
-          }
-        }
-      } catch (error) {
-        console.error('Error initializing auth:', error);
-      } finally {
-        setLoading(false);
-        setInitialized(true);
+    // Verificar sessão inicial
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted) return;
+      
+      if (session?.user) {
+        setUser({
+          id: session.user.id,
+          email: session.user.email || '',
+          username: session.user.user_metadata?.username || session.user.email?.split('@')[0] || 'User',
+          avatar_url: session.user.user_metadata?.avatar_url,
+          is_online: true,
+          last_seen: new Date().toISOString(),
+          created_at: session.user.created_at || new Date().toISOString()
+        });
       }
-    };
-
-    initializeAuth();
+      setLoading(false);
+    }).catch(() => {
+      if (mounted) setLoading(false);
+    });
 
     // Listener para mudanças de autenticação
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return;
+      
       if (session?.user) {
-        // Buscar dados do perfil quando logar
-        const { data } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', session.user.id)
-          .maybeSingle();
-
-        if (data) {
-          setUser({
-            id: data.id,
-            email: data.email,
-            username: data.username,
-            avatar_url: data.avatar_url,
-            is_online: true,
-            last_seen: new Date().toISOString(),
-            created_at: data.created_at
-          });
-        }
+        setUser({
+          id: session.user.id,
+          email: session.user.email || '',
+          username: session.user.user_metadata?.username || session.user.email?.split('@')[0] || 'User',
+          avatar_url: session.user.user_metadata?.avatar_url,
+          is_online: true,
+          last_seen: new Date().toISOString(),
+          created_at: session.user.created_at || new Date().toISOString()
+        });
       } else {
         setUser(null);
       }
     });
 
     return () => {
+      mounted = false;
       subscription.unsubscribe();
     };
-  }, [initialized]); // Adicionar initialized como dependência
+  }, []); // Array vazio - roda UMA VEZ
 
   const signIn = async (email: string, password: string) => {
     try {
