@@ -1,4 +1,3 @@
-// PlayNowEmu - Modern Gaming Platform v2.0
 import { useState } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Header from './components/Layout/Header';
