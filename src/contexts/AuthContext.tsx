@@ -34,25 +34,55 @@ export const useAuth = () => {
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true); // Iniciar como TRUE para não mostrar tela de login antes de checar
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Se as variáveis não estiverem configuradas, não travar no loading
+    if (!supabaseUrl || !supabaseKey) {
+      console.error('❌ Variáveis de ambiente não configuradas');
+      setLoading(false);
+      return;
+    }
+
     // Verificar sessão do Supabase ao carregar
     const initializeAuth = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        // Timeout de 10 segundos para não travar
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Timeout ao inicializar')), 10000)
+        );
+
+        const authPromise = supabase.auth.getSession();
+
+        const { data: { session } } = await Promise.race([authPromise, timeoutPromise]) as any;
         
         if (session?.user) {
           // Buscar dados do perfil do usuário
-          const { data } = await supabase
+          const { data, error } = await supabase
             .from('users')
             .select('*')
             .eq('id', session.user.id)
             .maybeSingle();
 
+          // Se a tabela não existir, apenas usar os dados da sessão
+          if (error && error.code === 'PGRST116') {
+            console.warn('Tabela users não existe, usando dados da sessão');
+            setUser({
+              id: session.user.id,
+              email: session.user.email || '',
+              username: session.user.user_metadata?.username || session.user.email?.split('@')[0] || 'User',
+              avatar_url: undefined,
+              is_online: true,
+              last_seen: new Date().toISOString(),
+              created_at: session.user.created_at || new Date().toISOString()
+            });
+            setLoading(false);
+            return;
+          }
+
           if (data) {
-            // Atualizar status online
-            await supabase
+            // Atualizar status online (não bloqueante)
+            supabase
               .from('users')
               .update({ 
                 is_online: true,
