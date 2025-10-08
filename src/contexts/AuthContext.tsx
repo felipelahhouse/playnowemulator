@@ -34,57 +34,73 @@ export const useAuth = () => {
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // Iniciar como TRUE para não mostrar tela de login antes de checar
 
   useEffect(() => {
-    // Verificar sessão do Supabase
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        // Buscar dados do perfil do usuário
-        supabase
-          .from('users')
-          .select('*')
-          .eq('id', session.user.id)
-          .single()
-          .then(({ data }) => {
-            if (data) {
-              setUser({
-                id: data.id,
-                email: data.email,
-                username: data.username,
-                avatar_url: data.avatar_url,
+    // Verificar sessão do Supabase ao carregar
+    const initializeAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session?.user) {
+          // Buscar dados do perfil do usuário
+          const { data } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', session.user.id)
+            .maybeSingle();
+
+          if (data) {
+            // Atualizar status online
+            await supabase
+              .from('users')
+              .update({ 
                 is_online: true,
-                last_seen: new Date().toISOString(),
-                created_at: data.created_at
-              });
-            }
-          });
+                last_seen: new Date().toISOString()
+              })
+              .eq('id', session.user.id);
+
+            setUser({
+              id: data.id,
+              email: data.email,
+              username: data.username,
+              avatar_url: data.avatar_url,
+              is_online: true,
+              last_seen: new Date().toISOString(),
+              created_at: data.created_at
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error initializing auth:', error);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
-    });
+    };
+
+    initializeAuth();
 
     // Listener para mudanças de autenticação
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
         // Buscar dados do perfil quando logar
-        supabase
+        const { data } = await supabase
           .from('users')
           .select('*')
           .eq('id', session.user.id)
-          .single()
-          .then(({ data }) => {
-            if (data) {
-              setUser({
-                id: data.id,
-                email: data.email,
-                username: data.username,
-                avatar_url: data.avatar_url,
-                is_online: true,
-                last_seen: new Date().toISOString(),
-                created_at: data.created_at
-              });
-            }
+          .maybeSingle();
+
+        if (data) {
+          setUser({
+            id: data.id,
+            email: data.email,
+            username: data.username,
+            avatar_url: data.avatar_url,
+            is_online: true,
+            last_seen: new Date().toISOString(),
+            created_at: data.created_at
           });
+        }
       } else {
         setUser(null);
       }

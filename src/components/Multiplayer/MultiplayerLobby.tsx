@@ -44,6 +44,12 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
     fetchSessions();
     fetchGames();
 
+    // Atualizar salas a cada 5 segundos
+    const refreshInterval = setInterval(() => {
+      fetchSessions();
+    }, 5000);
+
+    // Listener em tempo real para mudanças nas salas
     const channel = supabase
       .channel('game_sessions_changes')
       .on(
@@ -56,6 +62,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
       .subscribe();
 
     return () => {
+      clearInterval(refreshInterval);
       supabase.removeChannel(channel);
     };
   }, []);
@@ -66,15 +73,27 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
         .from('game_sessions')
         .select(`
           *,
-          host:host_id(username),
-          game:game_id(title, thumbnail_url)
+          host:users!game_sessions_host_id_fkey(username),
+          game:games!game_sessions_game_id_fkey(title, thumbnail_url)
         `)
         .eq('status', 'waiting')
-        .eq('is_public', true)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      setSessions(data || []);
+      if (error) {
+        console.error('Error fetching sessions:', error);
+        // Tentar query alternativa se a primeira falhar
+        const { data: altData, error: altError } = await supabase
+          .from('game_sessions')
+          .select('*')
+          .eq('status', 'waiting')
+          .order('created_at', { ascending: false });
+        
+        if (!altError && altData) {
+          setSessions(altData || []);
+        }
+      } else {
+        setSessions(data || []);
+      }
     } catch (error) {
       console.error('Error fetching sessions:', error);
     } finally {
@@ -227,79 +246,127 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {sessions.map((session) => (
-                <div
-                  key={session.id}
-                  className="group relative bg-gray-800/50 backdrop-blur-xl rounded-2xl border border-gray-700 overflow-hidden hover:border-cyan-400/50 transition-all duration-300 hover:scale-105"
-                >
-                  <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-br from-cyan-500/10 to-purple-500/10" />
-
-                  <div className="relative p-6">
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          {session.is_public ? (
-                            <Unlock className="w-4 h-4 text-green-400" />
-                          ) : (
-                            <Lock className="w-4 h-4 text-red-400" />
-                          )}
-                          <span className={`text-xs font-bold ${session.is_public ? 'text-green-400' : 'text-red-400'}`}>
-                            {session.is_public ? 'PUBLIC' : 'PRIVATE'}
-                          </span>
-                        </div>
-                        <h3 className="text-xl font-black text-white mb-1 group-hover:text-cyan-400 transition-colors">
-                          {session.session_name}
-                        </h3>
-                        <p className="text-gray-400 text-sm">{session.game?.title}</p>
+              {sessions.map((session) => {
+                const isFull = session.current_players >= session.max_players;
+                const isMySession = session.host_id === user?.id;
+                
+                return (
+                  <div
+                    key={session.id}
+                    className={`group relative bg-gray-800/50 backdrop-blur-xl rounded-2xl border overflow-hidden transition-all duration-300 ${
+                      isFull ? 'border-red-500/30 opacity-60' : 
+                      isMySession ? 'border-purple-500/50 hover:border-purple-400' :
+                      'border-gray-700 hover:border-cyan-400/50 hover:scale-105'
+                    }`}
+                  >
+                    {/* Indicador visual de HOST ou CHEIA */}
+                    {isMySession && (
+                      <div className="absolute top-3 right-3 z-10">
+                        <span className="flex items-center gap-1 px-3 py-1.5 bg-purple-500/90 backdrop-blur-sm border border-purple-400 rounded-full shadow-lg shadow-purple-500/50">
+                          <Crown className="w-4 h-4 text-yellow-300" />
+                          <span className="text-white text-xs font-bold">MINHA SALA</span>
+                        </span>
                       </div>
-                    </div>
+                    )}
+                    {isFull && !isMySession && (
+                      <div className="absolute top-3 right-3 z-10">
+                        <span className="px-3 py-1.5 bg-red-500/90 backdrop-blur-sm border border-red-400 rounded-full text-white text-xs font-bold">
+                          CHEIA
+                        </span>
+                      </div>
+                    )}
 
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-400 to-purple-400 flex items-center justify-center text-xs font-bold text-white">
-                          {session.host?.username?.[0]?.toUpperCase()}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className="text-white text-sm font-bold">{session.host?.username}</p>
-                            <span className="flex items-center gap-1 px-2 py-0.5 bg-yellow-500/20 border border-yellow-500/40 rounded-full">
-                              <Crown className="w-3 h-3 text-yellow-400" />
-                              <span className="text-yellow-400 text-xs font-bold">HOST</span>
+                    <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-br from-cyan-500/10 to-purple-500/10" />
+
+                    <div className="relative p-6">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            {session.is_public ? (
+                              <Unlock className="w-4 h-4 text-green-400" />
+                            ) : (
+                              <Lock className="w-4 h-4 text-red-400" />
+                            )}
+                            <span className={`text-xs font-bold ${session.is_public ? 'text-green-400' : 'text-red-400'}`}>
+                              {session.is_public ? 'PÚBLICA' : 'PRIVADA'}
                             </span>
                           </div>
-                          <p className="text-gray-500 text-xs">Criador da sala</p>
+                          <h3 className="text-xl font-black text-white mb-1 group-hover:text-cyan-400 transition-colors">
+                            {session.session_name}
+                          </h3>
+                          <p className="text-gray-400 text-sm">
+                            {session.game?.title || 'Carregando jogo...'}
+                          </p>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-2 px-3 py-1.5 bg-cyan-500/10 border border-cyan-500/30 rounded-full">
-                          <Users className="w-4 h-4 text-cyan-400" />
-                          <span className="text-cyan-400 font-bold text-sm">
-                            {session.current_players}/{session.max_players}
-                          </span>
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-400 to-purple-400 flex items-center justify-center text-xs font-bold text-white">
+                            {session.host?.username?.[0]?.toUpperCase() || 'H'}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className="text-white text-sm font-bold">
+                                {session.host?.username || 'Host'}
+                              </p>
+                              <span className="flex items-center gap-1 px-2 py-0.5 bg-yellow-500/20 border border-yellow-500/40 rounded-full">
+                                <Crown className="w-3 h-3 text-yellow-400" />
+                                <span className="text-yellow-400 text-xs font-bold">HOST</span>
+                              </span>
+                            </div>
+                            <p className="text-gray-500 text-xs">Criador da sala</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-4">
+                          <div className={`flex items-center gap-2 px-3 py-1.5 border rounded-full ${
+                            isFull ? 'bg-red-500/10 border-red-500/30' : 'bg-cyan-500/10 border-cyan-500/30'
+                          }`}>
+                            <Users className={`w-4 h-4 ${isFull ? 'text-red-400' : 'text-cyan-400'}`} />
+                            <span className={`font-bold text-sm ${isFull ? 'text-red-400' : 'text-cyan-400'}`}>
+                              {session.current_players}/{session.max_players}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-gray-500 text-xs">
-                        <Clock className="w-3.5 h-3.5" />
-                        <span>{getTimeAgo(session.created_at)}</span>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-gray-500 text-xs">
+                          <Clock className="w-3.5 h-3.5" />
+                          <span>{getTimeAgo(session.created_at)}</span>
+                        </div>
+
+                        {isMySession ? (
+                          <button
+                            onClick={() => onJoinSession(session.id)}
+                            className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg font-bold hover:shadow-lg hover:shadow-purple-500/50 transition-all duration-300"
+                          >
+                            <Crown className="w-4 h-4" />
+                            <span>Abrir Sala</span>
+                          </button>
+                        ) : isFull ? (
+                          <button
+                            disabled
+                            className="flex items-center gap-2 px-6 py-2.5 bg-gray-700 rounded-lg font-bold opacity-50 cursor-not-allowed"
+                          >
+                            <X className="w-4 h-4" />
+                            <span>Cheia</span>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => joinSession(session.id)}
+                            className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-green-500 to-emerald-500 rounded-lg font-bold hover:shadow-lg hover:shadow-green-500/50 transition-all duration-300"
+                          >
+                            <Play className="w-4 h-4" />
+                            <span>Entrar</span>
+                          </button>
+                        )}
                       </div>
-
-                      <button
-                        onClick={() => joinSession(session.id)}
-                        disabled={session.current_players >= session.max_players}
-                        className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-green-500 to-emerald-500 rounded-lg font-bold hover:shadow-lg hover:shadow-green-500/50 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:from-gray-600 disabled:to-gray-700"
-                        title={session.current_players >= session.max_players ? "Sala cheia" : "Entrar como jogador"}
-                      >
-                        <Play className="w-4 h-4" />
-                        <span>{session.current_players >= session.max_players ? 'Cheia' : 'Entrar'}</span>
-                      </button>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -316,7 +383,9 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
                   <Crown className="w-6 h-6 text-yellow-400" />
                   Criar Sala Multiplayer
                 </h3>
-                <p className="text-gray-400 text-sm mt-1">Você será o HOST da sala</p>
+                <p className="text-cyan-400 text-sm mt-1">
+                  ✨ Você será o <strong>HOST</strong> - Outros jogadores poderão entrar na sua sala
+                </p>
               </div>
               <button
                 onClick={() => setShowCreateModal(false)}
@@ -324,6 +393,16 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
               >
                 <X className="w-6 h-6 text-gray-400" />
               </button>
+            </div>
+
+            <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl p-4 mb-6">
+              <p className="text-cyan-300 text-sm">
+                💡 <strong>Como funciona:</strong><br/>
+                1️⃣ Você cria a sala e vira o HOST<br/>
+                2️⃣ A sala aparece na lista para outros jogadores<br/>
+                3️⃣ Outros jogadores clicam em "Entrar" para jogar com você<br/>
+                4️⃣ Quando todos estiverem prontos, o jogo começa!
+              </p>
             </div>
 
             <div className="space-y-4">
