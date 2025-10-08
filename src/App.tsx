@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { AuthProvider, useAuth, supabase } from './contexts/AuthContext';
 import Header from './components/Layout/Header';
 import HeroSection from './components/Hero/HeroSection';
 import GameLibrary from './components/Games/GameLibrary';
@@ -57,17 +57,9 @@ function AppContent() {
   };
 
   const handleCreateMultiplayer = (game: Game) => {
-    // Por enquanto, vamos criar uma sessão diretamente
-    // Futuramente pode abrir um modal de configuração
-    const sessionId = `session-${Date.now()}`;
-    
-    setNetPlaySession({
-      sessionId,
-      gameId: game.id,
-      gameTitle: game.title,
-      romPath: game.rom_url,
-      isHost: true
-    });
+    console.log('🎮 Criar multiplayer para:', game.title);
+    // Abre o lobby de multiplayer direto para criar sala com esse jogo
+    setShowMultiplayerLobby(true);
   };
 
   if (loading) {
@@ -156,9 +148,39 @@ function AppContent() {
         <MultiplayerLobby
           onClose={() => setShowMultiplayerLobby(false)}
           onJoinSession={(sessionId) => {
+            console.log('🚀 Abrindo sessão:', sessionId);
             setShowMultiplayerLobby(false);
-            // TODO: Abrir NetPlaySession com sessionId
-            console.log('Joined session:', sessionId);
+            
+            // Buscar dados da sessão para abrir o jogo
+            supabase
+              .from('game_sessions')
+              .select(`
+                *,
+                game:games!game_sessions_game_id_fkey(title, rom_url)
+              `)
+              .eq('id', sessionId)
+              .single()
+              .then(({ data, error }) => {
+                if (error) {
+                  console.error('❌ Erro ao buscar sessão:', error);
+                  alert('Erro ao entrar na sala. Tente novamente.');
+                  return;
+                }
+                
+                if (data && data.game) {
+                  console.log('✅ Sessão encontrada:', data);
+                  setNetPlaySession({
+                    sessionId: data.id,
+                    gameId: data.game_id,
+                    gameTitle: data.game.title,
+                    romPath: data.game.rom_url,
+                    isHost: data.host_id === user?.id
+                  });
+                } else {
+                  console.error('❌ Dados da sessão incompletos');
+                  alert('Erro: Dados da sala incompletos.');
+                }
+              });
           }}
         />
       )}
