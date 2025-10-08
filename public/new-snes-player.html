@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SNES Player</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+        }
+        
+        #loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: #0ea5e9;
+            z-index: 9999;
+        }
+        
+        #loading.hidden {
+            display: none;
+        }
+        
+        .spinner {
+            width: 60px;
+            height: 60px;
+            border: 5px solid rgba(14, 165, 233, 0.2);
+            border-top-color: #0ea5e9;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        #game {
+            width: 100vw;
+            height: 100vh;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <div class="spinner"></div>
+        <div id="status">Carregando jogo...</div>
+    </div>
+    <div id="game"></div>
+
+    <script>
+        // Obtém parâmetros da URL
+        const params = new URLSearchParams(window.location.search);
+        const romUrl = params.get('rom');
+        const gameTitle = params.get('title') || 'SNES Game';
+        
+        // Elementos
+        const loading = document.getElementById('loading');
+        const status = document.getElementById('status');
+        
+        // Atualiza status
+        function updateStatus(text) {
+            status.textContent = text;
+        }
+        
+        // Notifica parent window
+        function notifyParent(data) {
+            try {
+                if (window.parent && window.parent !== window) {
+                    window.parent.postMessage(data, '*');
+                }
+            } catch (e) {
+                console.warn('Could not notify parent:', e);
+            }
+        }
+        
+        if (!romUrl) {
+            updateStatus('❌ Nenhuma ROM especificada');
+            console.error('No ROM URL provided');
+        } else {
+            // Configuração do EmulatorJS - VERSÃO SIMPLIFICADA
+            window.EJS_player = '#game';
+            window.EJS_core = 'snes';
+            window.EJS_gameUrl = romUrl;
+            window.EJS_pathtodata = 'https://cdn.emulatorjs.org/stable/data/';
+            window.EJS_startOnLoaded = true;
+            window.EJS_disableDatabases = true;
+            
+            // Callbacks
+            window.EJS_onGameStart = function() {
+                console.log('[✓] Game started!');
+                loading.classList.add('hidden');
+                notifyParent({ type: 'emulator-ready' });
+            };
+            
+            window.EJS_ready = function() {
+                console.log('[✓] Emulator ready!');
+                updateStatus('Iniciando jogo...');
+            };
+            
+            // Carrega o EmulatorJS
+            updateStatus('Carregando emulador...');
+            const script = document.createElement('script');
+            script.src = 'https://cdn.emulatorjs.org/stable/data/loader.js';
+            script.crossOrigin = 'anonymous';
+            
+            script.onload = function() {
+                console.log('[✓] EmulatorJS loaded');
+                updateStatus('Preparando jogo...');
+            };
+            
+            script.onerror = function() {
+                console.error('[✗] Failed to load EmulatorJS');
+                updateStatus('❌ Falha ao carregar emulador');
+                notifyParent({ type: 'emulator-error', message: 'Failed to load emulator' });
+            };
+            
+            document.body.appendChild(script);
+            
+            // Timeout de segurança
+            setTimeout(() => {
+                if (!loading.classList.contains('hidden')) {
+                    console.warn('[!] Loading timeout');
+                    updateStatus('⏱️ Carregando... isso pode levar até 1 minuto');
+                }
+            }, 10000);
+        }
+    </script>
+</body>
+</html>

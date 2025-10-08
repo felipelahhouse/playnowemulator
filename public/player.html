@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SNES Player</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        width: 100%;
+        background: radial-gradient(circle at top, #031625 0%, #050711 60%, #03010a 100%);
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        color: #e2e8f0;
+        overflow: hidden;
+      }
+      #game {
+        width: 100%;
+        height: 100%;
+        display: none;
+      }
+      #fallback {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1.5rem;
+        font-size: 0.95rem;
+        text-align: center;
+        padding: 2rem;
+        color: #bae6fd;
+      }
+      .spinner {
+        width: 3.5rem;
+        height: 3.5rem;
+        border-radius: 50%;
+        border: 4px solid rgba(14, 165, 233, 0.2);
+        border-top-color: rgba(34, 211, 238, 0.85);
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      a {
+        color: inherit;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="fallback" role="status" aria-live="polite">
+      <div class="spinner" aria-hidden="true"></div>
+      <div>
+        <strong>Carregando motor SNES...</strong>
+        <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #94a3b8;">
+          A primeira inicialização pode levar alguns segundos.
+        </div>
+      </div>
+    </div>
+    <div id="game"></div>
+
+    <script>
+      (function () {
+        const params = new URLSearchParams(window.location.search);
+        const romUrl = params.get('rom');
+        const title = params.get('title') || 'SNES Game';
+        const fallback = document.getElementById('fallback');
+        const gameContainer = document.getElementById('game');
+        let targetOrigin = '*';
+        try {
+          if (window.parent && window.parent !== window) {
+            const referrer = document.referrer ? new URL(document.referrer).origin : null;
+            targetOrigin = referrer || window.location.origin || '*';
+          }
+        } catch (_err) {
+          targetOrigin = '*';
+        }
+
+        const notifyParent = (payload) => {
+          try {
+            window.parent.postMessage(payload, targetOrigin);
+          } catch (_err) {
+            window.parent.postMessage(payload, '*');
+          }
+        };
+
+        if (!romUrl) {
+          fallback.innerHTML = '<strong>ROM não encontrada.</strong><div style="margin-top:0.5rem;color:#fca5a5;font-size:0.85rem;">Verifique o caminho do arquivo e tente novamente.</div>';
+          notifyParent({ type: 'emulator-error', message: 'ROM não encontrada' });
+          return;
+        }
+
+        document.title = `${title} · SNES Player`;
+
+        window.EJS_player = '#game';
+        window.EJS_core = 'snes9x';
+        window.EJS_gameUrl = romUrl;
+        window.EJS_pathtodata = 'https://cdn.emulatorjs.com/data/';
+        window.EJS_color = '#0ea5e9';
+        window.EJS_speed = 1;
+        window.EJS_volume = 0.8;
+        window.EJS_fullscreenOnLoad = false;
+        window.EJS_startOnLoad = true;
+        window.EJS_MuteWhenUnfocused = true;
+        window.EJS_language = 'pt-BR';
+        window.EJS_onGameStart = function () {
+          fallback.style.display = 'none';
+          gameContainer.style.display = 'block';
+          notifyParent({ type: 'emulator-ready' });
+        };
+        window.EJS_onError = function (err) {
+          fallback.innerHTML = '<strong>Erro ao iniciar o emulador.</strong><div style="margin-top:0.5rem;color:#fca5a5;font-size:0.85rem;">' +
+            (err && err.message ? err.message : 'Tente recarregar a página.') +
+            '</div>';
+          notifyParent({ type: 'emulator-error', message: err && err.message ? err.message : 'Falha desconhecida' });
+        };
+
+        const readyWatcher = setInterval(() => {
+          const canvas = gameContainer.querySelector('canvas');
+          if (canvas) {
+            fallback.style.display = 'none';
+            gameContainer.style.display = 'block';
+            notifyParent({ type: 'emulator-ready' });
+            clearInterval(readyWatcher);
+          }
+        }, 500);
+
+        window.addEventListener('beforeunload', () => {
+          clearInterval(readyWatcher);
+        });
+
+        const script = document.createElement('script');
+        script.src = 'https://cdn.emulatorjs.com/emulator.js';
+        script.async = true;
+        script.onload = function () {
+          notifyParent({ type: 'player-loaded' });
+        };
+        script.onerror = function () {
+          fallback.innerHTML = '<strong>Não foi possível baixar o motor do emulador.</strong><div style="margin-top:0.5rem;color:#fca5a5;font-size:0.85rem;">Verifique sua conexão ou tente novamente.</div>';
+          notifyParent({ type: 'emulator-error', message: 'Falha ao baixar o motor do emulador' });
+        };
+        document.body.appendChild(script);
+
+        window.addEventListener('message', (event) => {
+          if (event.origin !== window.location.origin) return;
+          if (event.data && event.data.type === 'quit-emulator') {
+            try {
+              window.EJS_emulator?.pause();
+            } catch (err) {
+              console.warn('Falha ao pausar o emulador:', err);
+            }
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>
