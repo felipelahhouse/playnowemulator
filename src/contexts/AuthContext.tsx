@@ -35,26 +35,24 @@ export const useAuth = () => {
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
+    // Evitar reinicialização múltipla
+    if (initialized) return;
+    
     // Se as variáveis não estiverem configuradas, não travar no loading
     if (!supabaseUrl || !supabaseKey) {
       console.error('❌ Variáveis de ambiente não configuradas');
       setLoading(false);
+      setInitialized(true);
       return;
     }
 
     // Verificar sessão do Supabase ao carregar
     const initializeAuth = async () => {
       try {
-        // Timeout de 10 segundos para não travar
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Timeout ao inicializar')), 10000)
-        );
-
-        const authPromise = supabase.auth.getSession();
-
-        const { data: { session } } = await Promise.race([authPromise, timeoutPromise]) as any;
+        const { data: { session } } = await supabase.auth.getSession();
         
         if (session?.user) {
           // Buscar dados do perfil do usuário
@@ -77,6 +75,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               created_at: session.user.created_at || new Date().toISOString()
             });
             setLoading(false);
+            setInitialized(true);
             return;
           }
 
@@ -105,6 +104,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.error('Error initializing auth:', error);
       } finally {
         setLoading(false);
+        setInitialized(true);
       }
     };
 
@@ -136,8 +136,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     });
 
-    return () => subscription.unsubscribe();
-  }, []);
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [initialized]); // Adicionar initialized como dependência
 
   const signIn = async (email: string, password: string) => {
     try {
