@@ -209,6 +209,12 @@ const Header: React.FC = () => {
         <div className="fixed inset-0 z-40 md:hidden">
           <div className="absolute inset-0 bg-black/95 backdrop-blur-2xl" />
           <div className="relative container mx-auto px-4 pt-24 pb-8">
+            {/* Language and Theme Selectors - Mobile */}
+            <div className="flex items-center justify-center gap-3 mb-6 pb-6 border-b border-gray-800">
+              <LanguageSelector />
+              <ThemeSelector />
+            </div>
+
             <nav className="space-y-4">
               {['Games', 'Multiplayer', 'Tournaments', 'Community'].map((item) => (
                 <a
