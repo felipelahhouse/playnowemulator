@@ -61,6 +61,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const syncUserProfile = async (authUser: SupabaseAuthUser) => {
+    console.log('🔄 syncUserProfile iniciado para user:', authUser.id);
+    
     const fallbackUsername = authUser.email?.split('@')[0] || 'Player';
     const baseUsername = (authUser.user_metadata?.username || fallbackUsername).trim();
 
@@ -74,6 +76,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     try {
+      console.log('  📡 Buscando perfil existente...');
       // Primeiro, verificar se o usuário já existe
       const { data: existingUser } = await supabase
         .from('users')
@@ -81,8 +84,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .eq('id', authUser.id)
         .single();
 
+      console.log('  Perfil existente:', existingUser ? 'SIM' : 'NÃO');
+
       // Se já existe, só atualizar status online
       if (existingUser) {
+        console.log('  ✅ Atualizando status online...');
         const { data, error } = await supabase
           .from('users')
           .update({
@@ -94,13 +100,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .single();
 
         if (error) {
-          console.error('❌ Erro ao atualizar status online:', error);
+          console.error('  ❌ Erro ao atualizar status online:', error);
           return existingUser;
         }
 
-        console.log('✅ Status online atualizado');
+        console.log('  ✅ Status atualizado com sucesso');
         return data || existingUser;
       }
+
+      console.log('  📝 Criando novo perfil...');
 
       // Se não existe, criar novo perfil
       let attempt = 0;
@@ -161,14 +169,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const handleSession = async (session: Session | null) => {
+    console.log('🔄 handleSession chamado');
+    console.log('  Session exists:', !!session);
+    console.log('  User exists:', !!session?.user);
+    
     if (!session?.user) {
+      console.log('❌ Sem sessão ou user, limpando estado');
       updateUserState(null);
       setLoading(false);
       return;
     }
 
+    console.log('✅ Sessão válida, user ID:', session.user.id);
+    console.log('  Email:', session.user.email);
+    
     const profile = await syncUserProfile(session.user);
-    updateUserState(buildUser(session.user, profile));
+    console.log('📋 Profile retornado:', profile);
+    
+    const builtUser = buildUser(session.user, profile);
+    console.log('👤 User construído:', builtUser);
+    
+    updateUserState(builtUser);
     setLoading(false);
   };
 
