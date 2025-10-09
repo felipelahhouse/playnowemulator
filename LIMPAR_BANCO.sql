@@ -43,13 +43,7 @@ DELETE FROM games a USING games b
 WHERE a.id > b.id
 AND a.title = b.title;
 
--- 5. Atualizar estatísticas (VACUUM)
-VACUUM ANALYZE games;
-VACUUM ANALYZE game_sessions;
-VACUUM ANALYZE streams;
-VACUUM ANALYZE users;
-
--- 6. Verificar espaço liberado
+-- 5. Verificar espaço usado
 SELECT 
     schemaname,
     tablename,

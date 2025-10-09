@@ -74,12 +74,17 @@ const { data: { session } } = await Promise.race([
 4. Cole e execute **NA ORDEM**:
 
 ```sql
--- 1. Limpar duplicatas (30 segundos)
+### **1. Aplicar SQL no Supabase** (copie e cole):
+
+**⚠️ USE ESTE SCRIPT (SEM ERROS):**
+
+```sql
+-- Limpar duplicatas
 DELETE FROM games a USING games b
 WHERE a.id > b.id
 AND a.title = b.title;
 
--- 2. Limpar dados antigos (30 segundos)
+-- Limpar dados antigos
 DELETE FROM game_sessions
 WHERE created_at < NOW() - INTERVAL '7 days'
 AND status = 'finished';
@@ -88,12 +93,12 @@ DELETE FROM notifications
 WHERE is_read = true
 AND created_at < NOW() - INTERVAL '30 days';
 
--- 3. Otimizar banco (30 segundos)
-VACUUM ANALYZE games;
-VACUUM ANALYZE users;
-
--- 4. Verificar resultado
+-- Verificar
 SELECT COUNT(*) as total_jogos FROM games;
+```
+
+**❌ NÃO USE:** `VACUUM` (causa erro 25001)  
+**✅ USE:** Script acima que está testado e funciona!
 ```
 
 Deve retornar: **30 jogos**
