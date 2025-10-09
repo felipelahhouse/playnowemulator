@@ -158,27 +158,24 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
 
     setCreationError(null);
 
-    if (!user) {
+    if (!user || !user.id) {
       const message = 'Você precisa estar logado para criar uma sala.';
       console.error('❌ Usuário não está logado!');
       setCreationError(message);
-      alert(message);
       return;
     }
     
-    if (!newSession.game_id) {
+    if (!newSession.game_id || newSession.game_id.trim() === '') {
       const message = 'Por favor, selecione um jogo antes de criar a sala.';
       console.error('❌ Nenhum jogo selecionado!');
       setCreationError(message);
-      alert(message);
       return;
     }
     
-    if (!newSession.session_name) {
+    if (!newSession.session_name || newSession.session_name.trim() === '') {
       const message = 'Por favor, digite um nome para a sala.';
       console.error('❌ Nome da sala vazio!');
       setCreationError(message);
-      alert(message);
       return;
     }
 
@@ -186,6 +183,19 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
 
     try {
       console.log('📝 Criando sessão no banco...');
+      
+      // Validar que o jogo existe primeiro
+      const { data: gameCheck, error: gameError } = await supabase
+        .from('games')
+        .select('id')
+        .eq('id', newSession.game_id)
+        .single();
+
+      if (gameError || !gameCheck) {
+        console.error('❌ Jogo não encontrado:', gameError);
+        throw new Error('O jogo selecionado não existe. Por favor, recarregue a página e tente novamente.');
+      }
+
       const payload = {
         host_user_id: user.id,
         game_id: newSession.game_id,
@@ -196,18 +206,29 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
         status: 'waiting'
       };
 
+      console.log('📤 Payload:', JSON.stringify(payload, null, 2));
+
       const { data, error } = await supabase
         .from('game_sessions')
         .insert(payload)
         .select()
         .single();
 
-      if (error || !data) {
-        console.error('❌ Erro ao criar sessão:', error);
-        throw error || new Error('Não foi possível criar a sessão.');
+      if (error) {
+        console.error('❌ Erro detalhado ao criar sessão:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        });
+        throw error;
       }
 
-      console.log('✅ Sessão criada:', data);
+      if (!data) {
+        throw new Error('Sessão criada mas sem dados retornados.');
+      }
+
+      console.log('✅ Sessão criada com sucesso:', data);
       console.log('👥 Adicionando jogador à sessão...');
 
       const { error: playerError } = await supabase
@@ -220,12 +241,13 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
 
       if (playerError) {
         console.error('❌ Erro ao adicionar jogador:', playerError);
-        setCreationError(getFriendlyErrorMessage(playerError));
+        // Não bloquear aqui - a sala foi criada, só não adicionou o player
+        console.warn('⚠️ Sala criada mas falhou ao adicionar jogador. Continuando...');
       } else {
-        console.log('✅ Jogador adicionado!');
-        setCreationError(null);
+        console.log('✅ Jogador adicionado com sucesso!');
       }
 
+      // Limpar formulário
       setNewSession({
         game_id: '',
         session_name: '',
@@ -233,16 +255,22 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
         max_players: 4
       });
 
+      // Recarregar lista de salas
       await fetchSessions();
 
+      // Fechar modal
       setShowCreateModal(false);
+      
       console.log('🚀 Abrindo sessão:', data.id);
+      
+      // Abrir a sala
       onJoinSession(data.id);
-    } catch (error) {
-      console.error('❌ Error creating session:', error);
+      
+    } catch (error: any) {
+      console.error('❌ Erro capturado ao criar sessão:', error);
       const friendlyMessage = getFriendlyErrorMessage(error);
       setCreationError(friendlyMessage);
-      alert(friendlyMessage);
+      console.error('💬 Mensagem amigável:', friendlyMessage);
     } finally {
       setCreatingSession(false);
     }
