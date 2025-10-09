@@ -2,9 +2,19 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#000000">
     <title>SNES Player</title>
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
         body {
             margin: 0;
             padding: 0;
@@ -13,7 +23,12 @@
             align-items: center;
             justify-content: center;
             min-height: 100vh;
-            font-family: Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            overflow: hidden;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
         }
         
         #loading {
@@ -24,6 +39,7 @@
             text-align: center;
             color: #0ea5e9;
             z-index: 9999;
+            padding: 20px;
         }
         
         #loading.hidden {
@@ -44,9 +60,53 @@
             to { transform: rotate(360deg); }
         }
         
+        #status {
+            font-size: 14px;
+            font-weight: 500;
+            max-width: 280px;
+            line-height: 1.5;
+        }
+        
         #game {
             width: 100vw;
             height: 100vh;
+            position: relative;
+        }
+        
+        /* Estilos específicos para mobile */
+        @media (max-width: 768px) {
+            body {
+                overflow: hidden;
+                position: fixed;
+                width: 100%;
+                height: 100%;
+            }
+            
+            #game {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+            }
+            
+            #status {
+                font-size: 12px;
+                max-width: 240px;
+            }
+            
+            .spinner {
+                width: 50px;
+                height: 50px;
+            }
+        }
+        
+        /* Previne scroll bounce em iOS */
+        @supports (-webkit-touch-callout: none) {
+            body {
+                position: fixed;
+                overflow: hidden;
+            }
         }
     </style>
 </head>
@@ -66,6 +126,12 @@
         // Elementos
         const loading = document.getElementById('loading');
         const status = document.getElementById('status');
+        
+        // Detecta dispositivo móvel
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+        
+        console.log('[INFO] Device:', { isMobile, isTouch, userAgent: navigator.userAgent });
         
         // Atualiza status
         function updateStatus(text) {
@@ -87,56 +153,155 @@
             updateStatus('❌ Nenhuma ROM especificada');
             console.error('No ROM URL provided');
         } else {
-            // Configuração do EmulatorJS - VERSÃO SIMPLIFICADA
+            // Configuração do EmulatorJS - MELHORADA PARA MOBILE
             window.EJS_player = '#game';
             window.EJS_core = 'snes';
             window.EJS_gameUrl = romUrl;
+            window.EJS_gameName = gameTitle;
             window.EJS_pathtodata = 'https://cdn.emulatorjs.org/stable/data/';
+            
+            // Configurações de compatibilidade
             window.EJS_startOnLoaded = true;
-            window.EJS_disableDatabases = true;
+            window.EJS_biosUrl = '';
+            window.EJS_videoUrl = '';
             
-            // Desabilita menu de cheats
-            window.EJS_gameCheats = false;
-            window.EJS_hideCheatMenu = true;
+            // Configurações específicas para mobile
+            if (isMobile || isTouch) {
+                console.log('[INFO] Aplicando configurações mobile');
+                window.EJS_mobile = true;
+                window.EJS_VirtualGamepadSettings = {
+                    enabled: true,
+                    opacity: 0.7,
+                    size: 1.0
+                };
+                // Ativa tela cheia automática em mobile
+                window.EJS_defaultControls = {
+                    allowFullscreen: true,
+                    fullscreenOnLoad: false
+                };
+            }
             
-            // Callbacks
+            // Configurações de interface
+            window.EJS_color = '#0ea5e9';
+            window.EJS_backgroundColor = '#000000';
+            
+            // Controles
+            window.EJS_gameParentUrl = window.location.href;
+            window.EJS_language = 'pt-BR';
+            
+            // Volume padrão (mais baixo em mobile)
+            window.EJS_defaultVolume = isMobile ? 0.5 : 0.7;
+            
+            // Melhora performance em mobile
+            if (isMobile) {
+                window.EJS_threads = false; // Desativa threads em mobile para compatibilidade
+                window.EJS_cacheBust = true;
+            }
+            
+            // Callbacks de estado
             window.EJS_onGameStart = function() {
-                console.log('[✓] Game started!');
+                console.log('[✓] Jogo iniciado com sucesso!');
                 loading.classList.add('hidden');
                 notifyParent({ type: 'emulator-ready' });
+                
+                // Em mobile, mostra dica de controles virtuais
+                if (isMobile || isTouch) {
+                    console.log('[INFO] Controles virtuais ativados');
+                }
             };
             
             window.EJS_ready = function() {
-                console.log('[✓] Emulator ready!');
+                console.log('[✓] Emulador pronto!');
                 updateStatus('Iniciando jogo...');
             };
             
+            window.EJS_onLoadState = function() {
+                console.log('[✓] Estado carregado');
+            };
+            
+            window.EJS_onSaveState = function() {
+                console.log('[✓] Estado salvo');
+            };
+            
+            // Handler de erros melhorado
+            window.addEventListener('error', function(event) {
+                console.error('[✗] Error:', event.error);
+                if (event.error && event.error.message) {
+                    const errorMsg = event.error.message;
+                    updateStatus('❌ Erro: ' + errorMsg);
+                    notifyParent({ 
+                        type: 'emulator-error', 
+                        message: errorMsg 
+                    });
+                }
+            });
+            
+            // Previne zoom em mobile ao tocar rapidamente
+            if (isMobile || isTouch) {
+                document.addEventListener('touchstart', function(event) {
+                    if (event.touches.length > 1) {
+                        event.preventDefault();
+                    }
+                }, { passive: false });
+                
+                let lastTouchEnd = 0;
+                document.addEventListener('touchend', function(event) {
+                    const now = Date.now();
+                    if (now - lastTouchEnd <= 300) {
+                        event.preventDefault();
+                    }
+                    lastTouchEnd = now;
+                }, false);
+            }
+            
             // Carrega o EmulatorJS
-            updateStatus('Carregando emulador...');
+            updateStatus(isMobile ? 'Carregando emulador mobile...' : 'Baixando emulador...');
             const script = document.createElement('script');
             script.src = 'https://cdn.emulatorjs.org/stable/data/loader.js';
             script.crossOrigin = 'anonymous';
             
             script.onload = function() {
-                console.log('[✓] EmulatorJS loaded');
+                console.log('[✓] EmulatorJS carregado');
                 updateStatus('Preparando jogo...');
             };
             
-            script.onerror = function() {
-                console.error('[✗] Failed to load EmulatorJS');
-                updateStatus('❌ Falha ao carregar emulador');
-                notifyParent({ type: 'emulator-error', message: 'Failed to load emulator' });
+            script.onerror = function(e) {
+                console.error('[✗] Falha ao carregar EmulatorJS:', e);
+                updateStatus('❌ Não foi possível carregar o emulador');
+                notifyParent({ 
+                    type: 'emulator-error', 
+                    message: 'Falha ao carregar o emulador. Verifique sua conexão com a internet.' 
+                });
             };
             
             document.body.appendChild(script);
             
-            // Timeout de segurança
+            // Timeout progressivo
             setTimeout(() => {
                 if (!loading.classList.contains('hidden')) {
-                    console.warn('[!] Loading timeout');
-                    updateStatus('⏱️ Carregando... isso pode levar até 1 minuto');
+                    console.warn('[!] Ainda carregando após 10s');
+                    updateStatus('⏱️ Carregando... pode levar até 1 minuto na primeira vez');
                 }
             }, 10000);
+            
+            setTimeout(() => {
+                if (!loading.classList.contains('hidden')) {
+                    console.warn('[!] Ainda carregando após 30s');
+                    updateStatus('⏱️ Quase lá... o jogo pode ser grande');
+                }
+            }, 30000);
+            
+            // Timeout final
+            setTimeout(() => {
+                if (!loading.classList.contains('hidden')) {
+                    console.error('[✗] Timeout ao carregar jogo');
+                    updateStatus('❌ Tempo esgotado. Tente recarregar a página.');
+                    notifyParent({ 
+                        type: 'emulator-error', 
+                        message: 'Timeout ao carregar o jogo. Tente novamente.' 
+                    });
+                }
+            }, 60000);
         }
     </script>
 </body>
