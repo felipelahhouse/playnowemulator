@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth, supabase } from '../../contexts/AuthContext';
-import { Gamepad as GamepadIcon, User, Settings, LogOut, Trophy, Users, Menu, X } from 'lucide-react';
+import { Gamepad as GamepadIcon, User, Settings, LogOut, Trophy, Users, Menu, X, BarChart3 } from 'lucide-react';
 import UserProfile from '../User/UserProfile';
 import SettingsModal from '../Settings/SettingsModal';
 import ProfileSettings from '../User/ProfileSettings';
+import UserDashboard from '../User/UserDashboard';
 import LanguageSelector from '../Language/LanguageSelector';
 import ThemeSelector from '../Theme/ThemeSelector';
 
@@ -13,6 +14,7 @@ const Header: React.FC = () => {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showProfileSettings, setShowProfileSettings] = useState(false);
+  const [showDashboard, setShowDashboard] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [onlineCount, setOnlineCount] = useState(0);
 
@@ -151,10 +153,11 @@ const Header: React.FC = () => {
                         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-400 via-purple-400 to-pink-400" />
                         <div className="p-2 mt-2">
                           {[
-                            { icon: User, label: 'Editar Perfil', color: 'cyan', action: () => { setShowProfile(false); setShowProfileSettings(true); } },
-                            { icon: Trophy, label: 'Achievements', color: 'purple', action: () => setShowProfile(false) },
-                            { icon: Users, label: 'Friends', color: 'pink', action: () => setShowProfile(false) },
-                            { icon: Settings, label: 'Settings', color: 'green', action: () => { setShowProfile(false); setShowSettings(true); } }
+                            { icon: BarChart3, label: 'Dashboard', color: 'cyan', action: () => { setShowProfile(false); setShowDashboard(true); } },
+                            { icon: User, label: 'Editar Perfil', color: 'purple', action: () => { setShowProfile(false); setShowProfileSettings(true); } },
+                            { icon: Trophy, label: 'Conquistas', color: 'yellow', action: () => setShowProfile(false) },
+                            { icon: Users, label: 'Amigos', color: 'pink', action: () => setShowProfile(false) },
+                            { icon: Settings, label: 'Configurações', color: 'green', action: () => { setShowProfile(false); setShowSettings(true); } }
                           ].map(({ icon: Icon, label, color, action }) => (
                             <button
                               key={label}
@@ -239,6 +242,12 @@ const Header: React.FC = () => {
       {showProfileSettings && (
         <ProfileSettings
           onClose={() => setShowProfileSettings(false)}
+        />
+      )}
+
+      {showDashboard && (
+        <UserDashboard
+          onClose={() => setShowDashboard(false)}
         />
       )}
     </>

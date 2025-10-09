@@ -1,5 +1,6 @@
-import React from 'react';
-import { Play, TrendingUp, Star, Users, Zap, Trophy, Flame, Radio, Sparkles, Rocket, Crown } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Trophy, Star, Clock, Gamepad2, Users, Tv, TrendingUp, Award, Zap, Crown, Play, Flame, Radio, Sparkles, Rocket } from 'lucide-react';
+import { supabase, useAuth } from '../../contexts/AuthContext';
 
 const Dashboard: React.FC = () => {
   const featuredGames = [
