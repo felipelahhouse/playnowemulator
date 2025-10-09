@@ -94,10 +94,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Inicializar auth
   useEffect(() => {
     let mounted = true;
+    let timeoutId: NodeJS.Timeout;
 
     const initAuth = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        // Timeout de 5 segundos para evitar travamento infinito
+        const timeoutPromise = new Promise((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error('Auth timeout')), 5000);
+        });
+
+        const authPromise = supabase.auth.getSession();
+
+        const { data: { session } } = await Promise.race([
+          authPromise,
+          timeoutPromise
+        ]) as any;
+        
+        clearTimeout(timeoutId);
         
         if (mounted && session?.user) {
           const profile = await getOrCreateProfile(session.user);
@@ -105,6 +118,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } catch (error) {
         console.error('Erro ao inicializar auth:', error);
+        // Em caso de erro, continua sem usuário
+        setUser(null);
       } finally {
         if (mounted) setLoading(false);
       }
