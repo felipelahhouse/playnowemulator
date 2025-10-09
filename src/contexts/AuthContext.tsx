@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -24,65 +24,80 @@ interface AuthContextType {
   signOut: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType | null>(null);
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const useAuth = () => {
+export function useAuth() {
   const context = useContext(AuthContext);
-  if (!context) {
+  if (context === undefined) {
     throw new Error('useAuth must be used within AuthProvider');
   }
   return context;
-};
+}
 
-const toUserProfile = (firebaseUser: FirebaseUser, overrides: Partial<User> = {}): User => {
-  const username = overrides.username
-    ?? firebaseUser.displayName
-    ?? firebaseUser.email?.split('@')[0]
-    ?? 'Player';
-
-  return {
-    id: firebaseUser.uid,
-    email: firebaseUser.email ?? '',
-    username,
-    avatar_url: overrides.avatar_url,
-    created_at: overrides.created_at ?? new Date().toISOString(),
-    is_online: overrides.is_online ?? true,
-    last_seen: overrides.last_seen ?? new Date().toISOString(),
-  } satisfies User;
-};
-
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const upsertProfile = async (firebaseUser: FirebaseUser): Promise<User> => {
+  // Converter FirebaseUser para User
+  function createUserProfile(firebaseUser: FirebaseUser, customUsername?: string): User {
+    const username = customUsername || firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Player';
+    
+    const profile: User = {
+      id: firebaseUser.uid,
+      email: firebaseUser.email || '',
+      username,
+      created_at: new Date().toISOString(),
+      is_online: true,
+      last_seen: new Date().toISOString(),
+    };
+
+    // Só adiciona avatar_url se existir
+    if (firebaseUser.photoURL) {
+      profile.avatar_url = firebaseUser.photoURL;
+    }
+
+    return profile;
+  }
+
+  // Sincronizar com Firestore
+  async function syncUserProfile(firebaseUser: FirebaseUser): Promise<User> {
     const userRef = doc(db, 'users', firebaseUser.uid);
     const snapshot = await getDoc(userRef);
 
     if (snapshot.exists()) {
-      const data = snapshot.data() as User;
-      const updated: Partial<User> = {
+      // Usuário já existe, apenas atualizar status
+      const existingData = snapshot.data() as User;
+      await updateDoc(userRef, {
         is_online: true,
         last_seen: new Date().toISOString(),
-      };
-      await updateDoc(userRef, updated);
-      return { ...data, ...updated };
+      });
+      return { ...existingData, is_online: true, last_seen: new Date().toISOString() };
+    } else {
+      // Criar novo perfil
+      const newProfile = createUserProfile(firebaseUser);
+      const dataToSave: Record<string, any> = { ...newProfile };
+      
+      // Remover undefined values
+      if (!dataToSave.avatar_url) {
+        delete dataToSave.avatar_url;
+      }
+      
+      await setDoc(userRef, dataToSave);
+      return newProfile;
     }
+  }
 
-    const profile = toUserProfile(firebaseUser);
-    await setDoc(userRef, profile);
-    return profile;
-  };
-
+  // Observar mudanças de autenticação
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         try {
-          const profile = await upsertProfile(firebaseUser);
+          const profile = await syncUserProfile(firebaseUser);
           setUser(profile);
         } catch (error) {
-          console.error('Failed to sync user profile', error);
-          setUser(toUserProfile(firebaseUser));
+          console.error('Erro ao sincronizar perfil:', error);
+          // Fallback: usar dados básicos do Firebase
+          setUser(createUserProfile(firebaseUser));
         }
       } else {
         setUser(null);
@@ -93,157 +108,86 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubscribe();
   }, []);
 
-  const signIn = async (email: string, password: string) => {
-    setLoading(true);
+  // Login com email/senha
+  async function signIn(email: string, password: string) {
     try {
-      console.log('🔵 Iniciando login...', { email });
-      
-      const credentials = await signInWithEmailAndPassword(auth, email, password);
-      console.log('✅ Login bem-sucedido:', credentials.user.uid);
-      
-      const profile = await upsertProfile(credentials.user);
-      console.log('✅ Profile sincronizado');
-      
+      const result = await signInWithEmailAndPassword(auth, email, password);
+      const profile = await syncUserProfile(result.user);
       setUser(profile);
     } catch (error: any) {
-      console.error('❌ ERRO NO LOGIN:', error);
-      console.error('Código do erro:', error.code);
-      console.error('Mensagem:', error.message);
+      console.error('Erro no login:', error);
       
-      // Mensagens de erro mais específicas
-      let errorMessage = 'Erro ao fazer login';
-      
-      if (error.code === 'auth/user-not-found') {
-        errorMessage = 'Usuário não encontrado. Verifique o email ou crie uma conta.';
-      } else if (error.code === 'auth/wrong-password') {
-        errorMessage = 'Senha incorreta. Tente novamente ou use "Esqueci a senha".';
-      } else if (error.code === 'auth/invalid-email') {
-        errorMessage = 'Email inválido. Verifique o formato do email.';
-      } else if (error.code === 'auth/user-disabled') {
-        errorMessage = 'Esta conta foi desativada. Entre em contato com o suporte.';
+      // Mensagens de erro amigáveis
+      if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password') {
+        throw new Error('Email ou senha incorretos');
+      } else if (error.code === 'auth/user-not-found') {
+        throw new Error('Usuário não encontrado');
       } else if (error.code === 'auth/too-many-requests') {
-        errorMessage = 'Muitas tentativas. Aguarde alguns minutos e tente novamente.';
-      } else if (error.code === 'auth/network-request-failed') {
-        errorMessage = 'Erro de conexão. Verifique sua internet e tente novamente.';
-      } else if (error.message) {
-        errorMessage = error.message;
+        throw new Error('Muitas tentativas. Aguarde alguns minutos');
+      } else {
+        throw new Error('Erro ao fazer login. Tente novamente');
       }
-      
-      throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
     }
-  };
+  }
 
-  const signUp = async (email: string, password: string, username: string) => {
-    setLoading(true);
+  // Cadastro com email/senha
+  async function signUp(email: string, password: string, username: string) {
     try {
-      console.log('🔵 Iniciando cadastro...', { email, username });
+      const result = await createUserWithEmailAndPassword(auth, email, password);
       
-      // Criar conta no Firebase Auth
-      const credentials = await createUserWithEmailAndPassword(auth, email, password);
-      console.log('✅ Conta criada no Firebase Auth:', credentials.user.uid);
+      // Atualizar displayName
+      await updateProfile(result.user, { displayName: username });
       
-      // Atualizar profile com username
-      if (auth.currentUser && username) {
-        await updateProfile(auth.currentUser, { displayName: username });
-        console.log('✅ Profile atualizado com username');
-      }
-
       // Criar perfil no Firestore
-      const profile = toUserProfile(credentials.user, { username });
-      console.log('🔵 Criando perfil no Firestore...', profile);
+      const profile = createUserProfile(result.user, username);
+      const dataToSave: Record<string, any> = { ...profile };
       
-      await setDoc(doc(db, 'users', credentials.user.uid), profile);
-      console.log('✅ Perfil criado no Firestore com sucesso!');
+      // Remover undefined
+      if (!dataToSave.avatar_url) {
+        delete dataToSave.avatar_url;
+      }
       
+      await setDoc(doc(db, 'users', result.user.uid), dataToSave);
       setUser(profile);
-      console.log('✅ Cadastro completo! Usuário logado.');
     } catch (error: any) {
-      console.error('❌ ERRO NO CADASTRO:', error);
-      console.error('Código do erro:', error.code);
-      console.error('Mensagem:', error.message);
-      
-      // Mensagens de erro mais específicas
-      let errorMessage = 'Erro ao criar conta';
+      console.error('Erro no cadastro:', error);
       
       if (error.code === 'auth/email-already-in-use') {
-        errorMessage = 'Este email já está cadastrado. Faça login ou use outro email.';
-      } else if (error.code === 'auth/invalid-email') {
-        errorMessage = 'Email inválido. Verifique o formato do email.';
+        throw new Error('Este email já está cadastrado');
       } else if (error.code === 'auth/weak-password') {
-        errorMessage = 'Senha muito fraca. Use pelo menos 6 caracteres.';
-      } else if (error.code === 'auth/network-request-failed') {
-        errorMessage = 'Erro de conexão. Verifique sua internet e tente novamente.';
-      } else if (error.code === 'permission-denied') {
-        errorMessage = 'Erro de permissão no banco de dados. Entre em contato com o suporte.';
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-      
-      throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const signOut = async () => {
-    if (user?.id) {
-      try {
-        await updateDoc(doc(db, 'users', user.id), {
-          is_online: false,
-          last_seen: new Date().toISOString(),
-        });
-      } catch (error) {
-        console.error('Erro ao atualizar status offline:', error);
+        throw new Error('Senha muito fraca. Use pelo menos 6 caracteres');
+      } else if (error.code === 'auth/invalid-email') {
+        throw new Error('Email inválido');
+      } else {
+        throw new Error('Erro ao criar conta. Tente novamente');
       }
     }
+  }
 
-    await firebaseSignOut(auth).catch((error) => {
-      console.error('Erro ao sair:', error);
-    });
-    setUser(null);
-  };
-
-  const signInWithGoogle = async () => {
-    setLoading(true);
+  // Login com Google
+  async function signInWithGoogle() {
     try {
       const provider = new GoogleAuthProvider();
-      // Forçar seleção de conta e adicionar escopo de perfil
-      provider.setCustomParameters({
-        prompt: 'select_account'
-      });
-      provider.addScope('profile');
-      provider.addScope('email');
+      provider.setCustomParameters({ prompt: 'select_account' });
       
-      const credentials = await signInWithPopup(auth, provider);
-      const profile = await upsertProfile(credentials.user);
+      const result = await signInWithPopup(auth, provider);
+      const profile = await syncUserProfile(result.user);
       setUser(profile);
     } catch (error: any) {
       console.error('Erro no login com Google:', error);
       
-      // Mensagens de erro mais específicas
-      let errorMessage = 'Erro ao fazer login com Google';
-      
-      if (error.code === 'auth/popup-blocked') {
-        errorMessage = 'Pop-up bloqueado! Por favor, permita pop-ups no seu navegador.';
-      } else if (error.code === 'auth/popup-closed-by-user') {
-        errorMessage = 'Login cancelado. Você fechou a janela de login.';
-      } else if (error.code === 'auth/unauthorized-domain') {
-        errorMessage = 'Domínio não autorizado. O administrador precisa adicionar este domínio no Firebase Console.';
-      } else if (error.code === 'auth/operation-not-allowed') {
-        errorMessage = 'Login com Google não está ativado. Entre em contato com o administrador.';
-      } else if (error.message) {
-        errorMessage = error.message;
+      if (error.code === 'auth/popup-closed-by-user') {
+        throw new Error('Login cancelado');
+      } else if (error.code === 'auth/popup-blocked') {
+        throw new Error('Pop-up bloqueado. Permita pop-ups no navegador');
+      } else {
+        throw new Error('Erro ao fazer login com Google');
       }
-      
-      throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
     }
-  };
+  }
 
-  const resetPassword = async (email: string) => {
+  // Reset de senha
+  async function resetPassword(email: string) {
     try {
       await sendPasswordResetEmail(auth, email, {
         url: window.location.origin,
@@ -251,13 +195,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
     } catch (error: any) {
       console.error('Erro ao enviar email de recuperação:', error);
-      throw new Error(error?.message ?? 'Erro ao enviar email de recuperação');
+      throw new Error('Erro ao enviar email de recuperação');
     }
+  }
+
+  // Logout
+  async function signOut() {
+    if (user) {
+      try {
+        await updateDoc(doc(db, 'users', user.id), {
+          is_online: false,
+          last_seen: new Date().toISOString(),
+        });
+      } catch (error) {
+        console.error('Erro ao atualizar status:', error);
+      }
+    }
+    
+    await firebaseSignOut(auth);
+    setUser(null);
+  }
+
+  const value = {
+    user,
+    loading,
+    signIn,
+    signUp,
+    signInWithGoogle,
+    resetPassword,
+    signOut,
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signUp, signInWithGoogle, resetPassword, signOut }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
-};
+}

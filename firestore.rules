@@ -12,6 +12,7 @@ service cloud.firestore {
     // Usuários - qualquer autenticado pode ler, criar seu próprio usuário
     match /users/{userId} {
       allow read: if true;
+      // Permitir criação se autenticado E o ID do documento for o mesmo do usuário
       allow create: if request.auth != null && request.auth.uid == userId;
       allow update, delete: if request.auth != null && request.auth.uid == userId;
     }

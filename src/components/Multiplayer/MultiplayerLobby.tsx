@@ -283,8 +283,10 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
 
       const batch = writeBatch(db);
       batch.set(sessionRef, {
-        hostUserId: user.id,
-        gameId: newSession.gameId,
+        host_user_id: user.id,
+        hostUserId: user.id, // Compatibilidade
+        game_id: newSession.gameId,
+        gameId: newSession.gameId, // Compatibilidade
         sessionName: newSession.sessionName.trim(),
         isPublic: newSession.isPublic,
         maxPlayers: newSession.maxPlayers,

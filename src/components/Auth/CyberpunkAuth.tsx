@@ -11,7 +11,10 @@ const CyberpunkAuth: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [errorDetails, setErrorDetails] = useState('');
   const [success, setSuccess] = useState('');
+  const [showResetOption, setShowResetOption] = useState(false);
+  const [resetSending, setResetSending] = useState(false);
   const [activeGame, setActiveGame] = useState(0);
 
   const retroGames = [
@@ -33,13 +36,16 @@ const CyberpunkAuth: React.FC = () => {
     e.preventDefault();
     setLoading(true);
     setError('');
+    setErrorDetails('');
     setSuccess('');
+  setShowResetOption(false);
+  setResetSending(false);
 
     try {
       if (mode === 'reset') {
         console.log('🔵 Enviando email de reset para:', email);
         await resetPassword(email);
-        setSuccess('✅ Email de recuperação enviado! Verifique sua caixa de entrada.');
+        setSuccess('✅ Email de recuperação enviado! Verifique sua caixa de entrada (e spam).');
         setTimeout(() => {
           setMode('signin');
           setSuccess('');
@@ -65,13 +71,57 @@ const CyberpunkAuth: React.FC = () => {
     } catch (err: any) {
       console.error('❌ Erro na autenticação:', err);
       
-      let errorMessage = err.message || 'Falha na autenticação. Tente novamente.';
+      let errorMessage = '';
+      let errorDetail = '';
       
-      // Remover prefixos técnicos do Firebase
-      errorMessage = errorMessage.replace('Firebase: ', '');
-      errorMessage = errorMessage.replace('auth/', '');
+      // Mensagens específicas e orientações
+      if (err.message.includes('invalid-credential') || err.message.includes('Email ou senha incorretos')) {
+        errorMessage = '❌ Email ou senha incorretos';
+        errorDetail = '💡 Verifique:\n• O email está correto?\n• A senha está correta?\n• Caps Lock está desativado?\n• Esqueceu a senha? Clique em "Forgot password?"';
+        setShowResetOption(true);
+      } else if (err.message.includes('Usuário não encontrado') || err.message.includes('user-not-found')) {
+        errorMessage = '❌ Usuário não encontrado';
+        errorDetail = '💡 Verifique se o email está correto ou crie uma nova conta.';
+        if (mode === 'signin') {
+          setTimeout(() => {
+            setErrorDetails(errorDetail + '\n\n🔄 Quer criar uma conta? Clique em "CREATE PLAYER"');
+          }, 1000);
+        }
+      } else if (err.message.includes('Senha incorreta') || err.message.includes('wrong-password')) {
+        errorMessage = '❌ Senha incorreta';
+        errorDetail = '💡 Dicas:\n• Verifique se o Caps Lock está desativado\n• A senha tem pelo menos 6 caracteres?\n• Esqueceu a senha? Clique em "Forgot password?"';
+        setShowResetOption(true);
+      } else if (err.message.includes('email já está cadastrado') || err.message.includes('email-already-in-use')) {
+        errorMessage = '❌ Este email já está cadastrado';
+        errorDetail = '💡 Opções:\n• Faça login ao invés de criar conta\n• Esqueceu a senha? Use "Forgot password?"\n• Use outro email para criar nova conta';
+        if (mode === 'signup') {
+          setTimeout(() => {
+            setMode('signin');
+          }, 3000);
+        }
+        setShowResetOption(true);
+      } else if (err.message.includes('Email inválido') || err.message.includes('invalid-email')) {
+        errorMessage = '❌ Email inválido';
+        errorDetail = '💡 Use um email válido:\n• Exemplo: usuario@gmail.com\n• Verifique se não há espaços\n• Verifique se tem @ e .com';
+      } else if (err.message.includes('Senha muito fraca') || err.message.includes('weak-password')) {
+        errorMessage = '❌ Senha muito fraca';
+        errorDetail = '💡 Crie uma senha mais forte:\n• Mínimo 6 caracteres\n• Use letras e números\n• Exemplo: senha123';
+      } else if (err.message.includes('muitas tentativas') || err.message.includes('too-many-requests')) {
+        errorMessage = '❌ Muitas tentativas';
+        errorDetail = '💡 Aguarde alguns minutos e tente novamente.\nPor segurança, bloqueamos temporariamente.';
+      } else if (err.message.includes('Erro de conexão') || err.message.includes('network')) {
+        errorMessage = '❌ Erro de conexão';
+        errorDetail = '💡 Verifique:\n• Sua conexão com a internet\n• Se o site está carregando\n• Tente recarregar a página (F5)';
+      } else if (err.message.includes('operation-not-allowed')) {
+        errorMessage = '❌ Login não está ativado';
+        errorDetail = '⚠️ O administrador precisa ativar o Email/Password no Firebase Console.\n\n🔗 Instruções em: ATIVAR_EMAIL_PASSWORD_AGORA.md';
+      } else {
+        errorMessage = '❌ ' + (err.message || 'Erro desconhecido');
+        errorDetail = '💡 Tente:\n• Recarregar a página (F5)\n• Usar outro navegador\n• Verificar sua conexão';
+      }
       
       setError(errorMessage);
+      setErrorDetails(errorDetail);
       setLoading(false);
     } finally {
       if (mode !== 'reset') {
@@ -83,7 +133,10 @@ const CyberpunkAuth: React.FC = () => {
   const handleGoogleSignIn = async () => {
     setLoading(true);
     setError('');
+    setErrorDetails('');
     setSuccess('');
+    setShowResetOption(false);
+    setResetSending(false);
 
     try {
       await signInWithGoogle();
@@ -91,16 +144,54 @@ const CyberpunkAuth: React.FC = () => {
     } catch (err: any) {
       console.error('Google sign-in error:', err);
       
-      // Mensagens mais amigáveis
-      let errorMessage = err.message || 'Falha no login com Google. Tente novamente.';
+      let errorMessage = '';
+      let errorDetail = '';
       
-      // Se for erro de domínio não autorizado, dar instruções
-      if (err.message && err.message.includes('unauthorized-domain')) {
-        errorMessage = '⚠️ CONFIGURAÇÃO NECESSÁRIA: O administrador precisa adicionar este domínio no Firebase Console em Authentication > Settings > Authorized domains';
+      // Mensagens específicas para Google Sign-In
+      if (err.message && err.message.includes('popup-blocked')) {
+        errorMessage = '❌ Pop-up bloqueado';
+        errorDetail = '💡 Permita pop-ups:\n• Clique no ícone 🔒 na barra de endereços\n• Selecione "Sempre permitir pop-ups"\n• Tente novamente';
+      } else if (err.message && err.message.includes('popup-closed')) {
+        errorMessage = '❌ Login cancelado';
+        errorDetail = '💡 Você fechou a janela de login.\nTente novamente e selecione sua conta Google.';
+      } else if (err.message && err.message.includes('unauthorized-domain')) {
+        errorMessage = '❌ Domínio não autorizado';
+        errorDetail = '⚠️ O administrador precisa:\n• Ir em Firebase Console\n• Authentication > Settings\n• Adicionar este domínio na lista\n\n🔗 Veja: ATIVAR_EMAIL_PASSWORD_AGORA.md';
+      } else if (err.message && err.message.includes('operation-not-allowed')) {
+        errorMessage = '❌ Login com Google não está ativado';
+        errorDetail = '⚠️ O administrador precisa ativar:\n• Firebase Console\n• Authentication > Sign-in method\n• Ativar Google\n\n🔗 Veja: ATIVAR_EMAIL_PASSWORD_AGORA.md';
+      } else {
+        errorMessage = '❌ Falha no login com Google';
+        errorDetail = '💡 Tente:\n• Recarregar a página (F5)\n• Usar Email/Password ao invés\n• Verificar sua conexão';
       }
       
       setError(errorMessage);
+      setErrorDetails(errorDetail);
       setLoading(false);
+    }
+  };
+
+  const handleQuickReset = async () => {
+    if (!email) {
+      setError('❌ Informe o email para redefinir a senha');
+      setErrorDetails('💡 Digite o email da conta acima e tente novamente.');
+      return;
+    }
+
+    try {
+      setResetSending(true);
+      await resetPassword(email);
+      setSuccess('✅ Email de recuperação enviado! Verifique sua caixa de entrada (e spam).');
+      setError('');
+      setErrorDetails('');
+      setShowResetOption(false);
+      setMode('signin');
+    } catch (resetError: any) {
+      console.error('Erro ao enviar reset rápido:', resetError);
+      setError('❌ Não foi possível enviar o email de redefinição');
+      setErrorDetails('💡 Verifique se o email está correto e tente novamente. Se o problema persistir, contate o suporte.');
+    } finally {
+      setResetSending(false);
     }
   };
 
@@ -385,14 +476,48 @@ const CyberpunkAuth: React.FC = () => {
                 {/* Form */}
                 <form onSubmit={handleSubmit} className="space-y-5">
                   {error && (
-                    <div className="bg-red-500/10 border-2 border-red-500/30 rounded-xl p-4 animate-pulse">
-                      <p className="text-red-300 text-sm font-semibold">{error}</p>
+                    <div className="bg-red-500/10 border-2 border-red-500/30 rounded-xl p-4 space-y-3">
+                      <div className="flex items-start space-x-3">
+                        <div className="flex-shrink-0 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center animate-pulse">
+                          <span className="text-white text-xs font-black">!</span>
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-red-300 text-sm font-bold mb-2">{error}</p>
+                          {errorDetails && (
+                            <div className="bg-red-950/50 rounded-lg p-3 mt-2">
+                              <p className="text-red-200/80 text-xs whitespace-pre-line leading-relaxed">
+                                {errorDetails}
+                              </p>
+                            </div>
+                          )}
+                          {showResetOption && mode !== 'reset' && (
+                            <div className="mt-3 space-y-2">
+                              <button
+                                type="button"
+                                onClick={handleQuickReset}
+                                disabled={resetSending}
+                                className="w-full py-2 px-3 bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 rounded-lg text-red-100 text-xs font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {resetSending ? 'Enviando link de recuperação…' : 'Enviar link de redefinição de senha agora'}
+                              </button>
+                              <p className="text-red-200/60 text-[11px]">
+                                O link será enviado para <span className="font-semibold">{email || 'o email digitado acima'}</span>.
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   )}
 
                   {success && (
                     <div className="bg-green-500/10 border-2 border-green-500/30 rounded-xl p-4">
-                      <p className="text-green-300 text-sm font-semibold">{success}</p>
+                      <div className="flex items-start space-x-3">
+                        <div className="flex-shrink-0 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
+                          <span className="text-white text-xs font-black">✓</span>
+                        </div>
+                        <p className="text-green-300 text-sm font-semibold flex-1">{success}</p>
+                      </div>
                     </div>
                   )}
 

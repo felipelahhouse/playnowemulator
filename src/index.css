@@ -447,90 +447,230 @@
 }
 
 /* ========================================
-   HALLOWEEN ANIMATIONS
+   HALLOWEEN ANIMATIONS - MELHORADAS E EXPANDIDAS
    ======================================== */
 
-/* Flying Bats Animation */
+/* Flying Bats Animation - MAIS RÁPIDA E VISÍVEL */
 @keyframes fly-across {
   0% {
-    transform: translateX(-50px) translateY(0) rotate(0deg);
+    transform: translateX(-100px) translateY(0) rotate(0deg) scale(1);
     opacity: 0;
   }
-  10% {
+  5% {
     opacity: 1;
-  }
-  90% {
-    opacity: 1;
-  }
-  100% {
-    transform: translateX(calc(100vw + 50px)) translateY(-100px) rotate(360deg);
-    opacity: 0;
-  }
-}
-
-/* Floating Ghosts Animation */
-@keyframes float-up {
-  0% {
-    transform: translateY(0) translateX(0);
-    opacity: 0.6;
   }
   50% {
-    transform: translateY(-30px) translateX(20px);
-    opacity: 0.8;
+    transform: translateX(50vw) translateY(-80px) rotate(180deg) scale(1.2);
+    opacity: 1;
+  }
+  95% {
+    opacity: 1;
   }
   100% {
-    transform: translateY(-60px) translateX(-10px);
-    opacity: 0.6;
+    transform: translateX(calc(100vw + 100px)) translateY(-150px) rotate(360deg) scale(1);
+    opacity: 0;
   }
 }
 
-/* Falling Leaves Animation */
+/* Floating Ghosts Animation - MAIS MOVIMENTO */
+@keyframes float-up {
+  0% {
+    transform: translateY(0) translateX(0) scale(1);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.85;
+  }
+  25% {
+    transform: translateY(calc(-25vh)) translateX(30px) scale(1.1);
+  }
+  50% {
+    transform: translateY(calc(-50vh)) translateX(-20px) scale(1.2);
+  }
+  75% {
+    transform: translateY(calc(-75vh)) translateX(40px) scale(1.15);
+  }
+  90% {
+    opacity: 0.85;
+  }
+  100% {
+    transform: translateY(calc(-100vh - 100px)) translateX(-30px) scale(1);
+    opacity: 0;
+  }
+}
+
+/* Falling Leaves Animation - MAIS REALISTA */
 @keyframes fall {
   0% {
-    transform: translateY(-50px) translateX(0) rotate(0deg);
+    transform: translateY(-100px) translateX(0) rotate(0deg);
     opacity: 0;
   }
   10% {
     opacity: 1;
   }
+  25% {
+    transform: translateY(25vh) translateX(30px) rotate(90deg);
+  }
+  50% {
+    transform: translateY(50vh) translateX(-20px) rotate(180deg);
+  }
+  75% {
+    transform: translateY(75vh) translateX(40px) rotate(270deg);
+  }
   90% {
     opacity: 1;
   }
   100% {
-    transform: translateY(calc(100vh + 50px)) translateX(100px) rotate(360deg);
+    transform: translateY(calc(100vh + 100px)) translateX(100px) rotate(360deg);
     opacity: 0;
   }
 }
 
-/* Jack-o'-Lantern Flicker */
+/* Jack-o'-Lantern Flicker - MAIS INTENSO */
 @keyframes flicker {
   0%, 100% {
     opacity: 1;
-    filter: drop-shadow(0 0 20px rgba(249, 115, 22, 0.8));
+    filter: drop-shadow(0 0 40px rgba(249, 115, 22, 1)) brightness(1.2);
+  }
+  25% {
+    opacity: 0.8;
+    filter: drop-shadow(0 0 20px rgba(249, 115, 22, 0.7)) brightness(1);
   }
   50% {
-    opacity: 0.7;
-    filter: drop-shadow(0 0 10px rgba(249, 115, 22, 0.5));
+    opacity: 0.6;
+    filter: drop-shadow(0 0 15px rgba(249, 115, 22, 0.5)) brightness(0.9);
+  }
+  75% {
+    opacity: 0.9;
+    filter: drop-shadow(0 0 30px rgba(249, 115, 22, 0.8)) brightness(1.1);
   }
 }
 
-/* Pumpkin Bounce */
+/* Pumpkin Bounce - MAIS ENERGIA */
 @keyframes bounce-slow {
   0%, 100% {
-    transform: translateY(0) scale(1);
+    transform: translateY(0) scale(1) rotate(0deg);
+  }
+  25% {
+    transform: translateY(-25px) scale(1.1) rotate(-5deg);
   }
   50% {
-    transform: translateY(-15px) scale(1.05);
+    transform: translateY(-35px) scale(1.15) rotate(0deg);
+  }
+  75% {
+    transform: translateY(-20px) scale(1.08) rotate(5deg);
   }
 }
 
-/* Spiderweb Sway */
+/* Spiderweb Sway - MAIS MOVIMENTO */
 @keyframes sway {
   0%, 100% {
-    transform: rotate(0deg);
+    transform: rotate(0deg) scale(1);
+  }
+  25% {
+    transform: rotate(5deg) scale(1.02);
   }
   50% {
-    transform: rotate(3deg);
+    transform: rotate(-5deg) scale(1.05);
+  }
+  75% {
+    transform: rotate(3deg) scale(1.03);
+  }
+}
+
+/* Spider Drop - NOVA ANIMAÇÃO */
+@keyframes spider-drop {
+  0% {
+    transform: translateY(-100px);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  50% {
+    transform: translateY(50vh);
+    opacity: 1;
+  }
+  60% {
+    transform: translateY(calc(50vh - 30px));
+  }
+  70% {
+    transform: translateY(calc(50vh - 10px));
+  }
+  80% {
+    transform: translateY(calc(50vh - 20px));
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(calc(100vh + 100px));
+    opacity: 0;
+  }
+}
+
+/* Skull Rotate - NOVA ANIMAÇÃO */
+@keyframes skull-rotate {
+  0%, 100% {
+    transform: rotate(0deg) scale(1);
+    filter: drop-shadow(0 0 25px rgba(168, 85, 247, 0.8));
+  }
+  25% {
+    transform: rotate(10deg) scale(1.1);
+    filter: drop-shadow(0 0 35px rgba(168, 85, 247, 1));
+  }
+  50% {
+    transform: rotate(-10deg) scale(1.05);
+    filter: drop-shadow(0 0 30px rgba(168, 85, 247, 0.9));
+  }
+  75% {
+    transform: rotate(5deg) scale(1.08);
+    filter: drop-shadow(0 0 32px rgba(168, 85, 247, 0.95));
+  }
+}
+
+/* Witch Float - NOVA ANIMAÇÃO */
+@keyframes witch-float {
+  0%, 100% {
+    transform: translateY(0) translateX(0);
+  }
+  25% {
+    transform: translateY(-30px) translateX(20px);
+  }
+  50% {
+    transform: translateY(-50px) translateX(-10px);
+  }
+  75% {
+    transform: translateY(-35px) translateX(15px);
+  }
+}
+
+/* Moon Glow - NOVA ANIMAÇÃO */
+@keyframes moon-glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 50px rgba(255, 255, 255, 0.8)) brightness(1);
+  }
+  50% {
+    filter: drop-shadow(0 0 80px rgba(255, 255, 255, 1)) brightness(1.2);
+  }
+}
+
+/* Candy Spin - NOVA ANIMAÇÃO */
+@keyframes candy-spin {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+  25% {
+    transform: rotate(90deg) scale(1.1);
+  }
+  50% {
+    transform: rotate(180deg) scale(1.2);
+  }
+  75% {
+    transform: rotate(270deg) scale(1.1);
+  }
+  100% {
+    transform: rotate(360deg) scale(1);
   }
 }
 
@@ -542,48 +682,78 @@
   width: 100%;
   height: 100%;
   pointer-events: none;
-  z-index: 9999;
+  z-index: 100;
   overflow: hidden;
 }
 
-/* Individual Effect Styles */
+/* Individual Effect Styles - MELHORADOS */
 .halloween-bat {
   position: absolute;
-  font-size: 2rem;
+  font-size: 3rem;
   animation: fly-across linear infinite;
   opacity: 0;
+  filter: drop-shadow(0 0 10px rgba(0, 0, 0, 0.8)) brightness(1.2);
 }
 
 .halloween-ghost {
   position: absolute;
-  font-size: 2.5rem;
+  font-size: 4rem;
   animation: float-up ease-in-out infinite;
-  opacity: 0.7;
+  opacity: 0.85;
+  filter: drop-shadow(0 0 25px rgba(168, 85, 247, 0.8)) brightness(1.3);
 }
 
 .halloween-pumpkin {
   position: absolute;
-  font-size: 3rem;
+  font-size: 5rem;
   animation: bounce-slow ease-in-out infinite;
+  filter: drop-shadow(0 0 30px rgba(249, 115, 22, 0.9));
+  animation-duration: 3s;
 }
 
 .halloween-leaf {
   position: absolute;
-  font-size: 1.5rem;
+  font-size: 2rem;
   animation: fall linear infinite;
-  opacity: 0;
+  opacity: 0.7;
+  filter: drop-shadow(0 0 8px rgba(249, 115, 22, 0.6));
 }
 
 .halloween-spiderweb {
   position: absolute;
-  opacity: 0.3;
+  opacity: 0.6;
   animation: sway ease-in-out infinite;
-  animation-duration: 4s;
+  animation-duration: 5s;
+  filter: drop-shadow(0 0 15px rgba(168, 85, 247, 0.5));
 }
 
 .halloween-jackolantern {
   position: absolute;
-  font-size: 2rem;
+  font-size: 4rem;
   animation: flicker ease-in-out infinite;
-  animation-duration: 2s;
+  animation-duration: 2.5s;
+}
+
+.animate-spider-drop {
+  animation: spider-drop linear infinite;
+}
+
+.animate-skull-rotate {
+  animation: skull-rotate ease-in-out infinite;
+  animation-duration: 6s;
+}
+
+.animate-witch-float {
+  animation: witch-float ease-in-out infinite;
+  animation-duration: 4s;
+}
+
+.animate-moon-glow {
+  animation: moon-glow ease-in-out infinite;
+  animation-duration: 5s;
+}
+
+.animate-candy-spin {
+  animation: candy-spin linear infinite;
+  animation-duration: 4s;
 }

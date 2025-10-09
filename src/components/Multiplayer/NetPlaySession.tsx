@@ -17,6 +17,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { useSessionManager } from '../../hooks/useSessionManager';
 
 interface NetPlaySessionProps {
   sessionId: string;
@@ -64,7 +65,24 @@ const NetPlaySession: React.FC<NetPlaySessionProps> = ({
   const presenceRef = useRef<string | null>(null);
   const unsubscribersRef = useRef<(() => void)[]>([]);
   
+  // Usar hook de gestão de sessão
+  const { closeSession, leaveSession } = useSessionManager({
+    sessionId,
+    userId: user?.id || '',
+    isHost,
+    onSessionClosed: () => {
+      console.log('⚠️ Sessão foi fechada');
+      if (onClose) onClose();
+      if (onLeave) onLeave();
+    }
+  });
+  
   const handleClose = () => {
+    if (isHost) {
+      closeSession();
+    } else {
+      leaveSession();
+    }
     if (onClose) onClose();
     if (onLeave) onLeave();
   };

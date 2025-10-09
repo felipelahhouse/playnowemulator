@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../../contexts/FirebaseAuthContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { Gamepad as GamepadIcon, User, Settings, LogOut, Trophy, Users, Menu, X, BarChart3 } from 'lucide-react';
 import UserProfile from '../User/UserProfile';
 import SettingsModal from '../Settings/SettingsModal';

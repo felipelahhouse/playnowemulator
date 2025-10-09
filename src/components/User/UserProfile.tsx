@@ -1,5 +1,5 @@
 import React from 'react';
-import { useAuth } from '../../contexts/FirebaseAuthContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { X, Trophy, Gamepad2, Clock, Star, LogOut } from 'lucide-react';
 
 interface UserProfileProps {

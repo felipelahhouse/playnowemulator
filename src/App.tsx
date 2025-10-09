@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useTheme } from './contexts/ThemeContext';
+import { useSessionCleanup } from './hooks/useSessionCleanup';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from './lib/firebase';
 import Header from './components/Layout/Header';
@@ -37,6 +38,10 @@ interface StreamSetupData {
 function AppContent() {
   const { user, loading } = useAuth();
   const { theme } = useTheme();
+  
+  // Hook para limpar salas inativas automaticamente
+  useSessionCleanup();
+  
   const [currentView, setCurrentView] = useState<'streams' | 'games' | 'multiplayer'>('games');
   const [showMultiplayerLobby, setShowMultiplayerLobby] = useState(false);
   const [netPlaySession, setNetPlaySession] = useState<NetPlaySessionData | null>(null);
@@ -173,7 +178,17 @@ function AppContent() {
                 }
 
                 const sessionData = sessionDoc.data();
-                const gameDoc = await getDoc(doc(db, 'games', sessionData.game_id));
+                
+                // Suportar tanto gameId quanto game_id
+                const gameId = sessionData.gameId || sessionData.game_id;
+                
+                if (!gameId) {
+                  console.error('❌ ID do jogo não encontrado na sessão');
+                  alert('Erro: sessão sem jogo associado.');
+                  return;
+                }
+                
+                const gameDoc = await getDoc(doc(db, 'games', gameId));
 
                 if (!gameDoc.exists()) {
                   console.error('❌ Jogo não encontrado');
@@ -184,12 +199,15 @@ function AppContent() {
                 const gameData = gameDoc.data();
                 console.log('✅ Sessão encontrada:', sessionData);
                 
+                // Suportar tanto host_user_id quanto hostUserId
+                const hostId = sessionData.host_user_id || sessionData.hostUserId;
+                
                 setNetPlaySession({
                   sessionId: sessionDoc.id,
-                  gameId: sessionData.game_id,
+                  gameId: gameId,
                   gameTitle: gameData.title,
                   romPath: gameData.romUrl,
-                  isHost: sessionData.host_user_id === user?.id
+                  isHost: hostId === user?.id
                 });
               } catch (error) {
                 console.error('❌ Erro ao carregar sessão:', error);
