@@ -1,6 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { Camera, X, Loader2, User, Save } from 'lucide-react';
-import { supabase, useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { doc, updateDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { auth, db, storage } from '../../lib/firebase';
+import { updateProfile } from 'firebase/auth';
 
 interface ProfileSettingsProps {
   onClose: () => void;
@@ -41,23 +45,12 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => {
       const fileName = `${user?.id}-${Date.now()}.${fileExt}`;
       const filePath = `avatars/${fileName}`;
 
-      // Upload para o Supabase Storage
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: true
-        });
+      const storageRef = ref(storage, filePath);
+      await uploadBytes(storageRef, file, {
+        cacheControl: '3600',
+      });
 
-      if (uploadError) {
-        throw uploadError;
-      }
-
-      // Obter URL pública
-      const { data: { publicUrl } } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(filePath);
-
+      const publicUrl = await getDownloadURL(storageRef);
       setAvatarUrl(publicUrl);
       console.log('✅ Avatar uploaded:', publicUrl);
       
@@ -75,15 +68,18 @@ const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => {
     setSaving(true);
 
     try {
-      const { error } = await supabase
-        .from('users')
-        .update({
-          username: username,
-          avatar_url: avatarUrl
-        })
-        .eq('id', user.id);
+      await updateDoc(doc(db, 'users', user.id), {
+        username,
+        avatar_url: avatarUrl,
+        last_seen: new Date().toISOString(),
+      });
 
-      if (error) throw error;
+      if (auth.currentUser) {
+        await updateProfile(auth.currentUser, {
+          displayName: username,
+          photoURL: avatarUrl || undefined,
+        });
+      }
 
       alert('Perfil atualizado com sucesso!');
       window.location.reload(); // Recarregar para atualizar o header

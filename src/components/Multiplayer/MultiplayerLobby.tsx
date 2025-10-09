@@ -1,25 +1,50 @@
-import React, { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { X, Users, Lock, Unlock, Play, Clock, Radio, Crown, Loader2 } from 'lucide-react';
-import { supabase } from '../../contexts/AuthContext';
+import {
+  Timestamp,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  increment,
+  onSnapshot,
+  orderBy,
+  query,
+  runTransaction,
+  serverTimestamp,
+  where,
+  writeBatch
+} from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import { useAuth } from '../../contexts/AuthContext';
+
+interface FirestoreSession {
+  hostUserId?: string;
+  gameId?: string;
+  sessionName?: string;
+  isPublic?: boolean;
+  maxPlayers?: number;
+  currentPlayers?: number;
+  status?: string;
+  createdAt?: Timestamp | string;
+}
 
 interface GameSession {
   id: string;
-  host_user_id?: string;
-  host_id?: string;
-  game_id: string;
-  session_name: string;
-  is_public: boolean;
-  max_players: number;
-  current_players: number;
+  hostUserId: string | null;
+  gameId: string;
+  sessionName: string;
+  isPublic: boolean;
+  maxPlayers: number;
+  currentPlayers: number;
   status: string;
-  created_at: string;
+  createdAt: string;
   host?: {
     username: string;
   };
   game?: {
     title: string;
-    thumbnail_url: string;
+    thumbnailUrl?: string | null;
   };
 }
 
@@ -28,379 +53,322 @@ interface MultiplayerLobbyProps {
   onJoinSession: (sessionId: string) => void;
 }
 
-const resolveHostId = (session: { host_user_id?: string; host_id?: string }) =>
-  session.host_user_id ?? session.host_id ?? null;
+interface GameOption {
+  id: string;
+  title: string;
+}
+
+const normalizeTimestamp = (value?: Timestamp | string | Date | null): string => {
+  if (!value) return new Date().toISOString();
+  if (value instanceof Timestamp) return value.toDate().toISOString();
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'string') {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
+  }
+  if (typeof (value as any)?.toDate === 'function') {
+    try {
+      return (value as any).toDate().toISOString();
+    } catch (error) {
+      console.warn('Failed to normalize timestamp', error);
+    }
+  }
+  return new Date().toISOString();
+};
+
+const getTimeAgo = (isoDate: string) => {
+  const created = new Date(isoDate).getTime();
+  const diffSeconds = Math.max(0, Math.floor((Date.now() - created) / 1000));
+  if (diffSeconds < 60) return `${diffSeconds}s ago`;
+  const minutes = Math.floor(diffSeconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
+};
 
 const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSession }) => {
   const { user } = useAuth();
   const [sessions, setSessions] = useState<GameSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [games, setGames] = useState<any[]>([]);
-  const [newSession, setNewSession] = useState({
-    game_id: '',
-    session_name: '',
-    is_public: true,
-    max_players: 4
-  });
+  const [games, setGames] = useState<GameOption[]>([]);
   const [creatingSession, setCreatingSession] = useState(false);
   const [creationError, setCreationError] = useState<string | null>(null);
 
+  const [newSession, setNewSession] = useState({
+    gameId: '',
+    sessionName: '',
+    isPublic: true,
+    maxPlayers: 4
+  });
+
+  const sessionsQuery = useMemo(() => {
+    return query(
+      collection(db, 'game_sessions'),
+      where('status', '==', 'waiting'),
+      where('isPublic', '==', true),
+      orderBy('createdAt', 'desc')
+    );
+  }, []);
+
   useEffect(() => {
-    fetchSessions();
-    fetchGames();
+    let active = true;
 
-    // Atualizar salas a cada 5 segundos
-    const refreshInterval = setInterval(() => {
-      fetchSessions();
-    }, 5000);
+    const unsubscribe = onSnapshot(
+      sessionsQuery,
+      (snapshot) => {
+        (async () => {
+          const rawSessions = snapshot.docs.map((docSnap) => ({
+            id: docSnap.id,
+            ...(docSnap.data() as FirestoreSession)
+          }));
 
-    // Listener em tempo real para mudanças nas salas
-    const channel = supabase
-      .channel('game_sessions_changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'game_sessions' },
-        () => {
-          fetchSessions();
+          if (!active) return;
+
+          const hostIds = Array.from(
+            new Set(
+              rawSessions
+                .map((session) => session.hostUserId ?? null)
+                .filter((value): value is string => Boolean(value))
+            )
+          );
+
+          const gameIds = Array.from(
+            new Set(
+              rawSessions
+                .map((session) => session.gameId ?? null)
+                .filter((value): value is string => Boolean(value))
+            )
+          );
+
+          const hostMap = new Map<string, { username: string }>();
+          await Promise.all(
+            hostIds.map(async (hostId) => {
+              try {
+                const hostDoc = await getDoc(doc(db, 'users', hostId));
+                if (hostDoc.exists()) {
+                  const data = hostDoc.data() as any;
+                  hostMap.set(hostId, { username: data.username ?? 'Host' });
+                }
+              } catch (error) {
+                console.warn('Failed to load host', hostId, error);
+              }
+            })
+          );
+
+          const gameMap = new Map<string, { title: string; thumbnailUrl?: string | null }>();
+          await Promise.all(
+            gameIds.map(async (gameId) => {
+              try {
+                const gameDoc = await getDoc(doc(db, 'games', gameId));
+                if (gameDoc.exists()) {
+                  const data = gameDoc.data() as any;
+                  gameMap.set(gameId, {
+                    title: data.title ?? 'Game',
+                    thumbnailUrl: data.thumbnailUrl ?? data.imageUrl ?? data.image_url ?? null
+                  });
+                }
+              } catch (error) {
+                console.warn('Failed to load game', gameId, error);
+              }
+            })
+          );
+
+          const enrichedSessions: GameSession[] = rawSessions.map((session) => {
+            const hostUserId = session.hostUserId ?? null;
+            const gameId = session.gameId ?? '';
+
+            return {
+              id: session.id,
+              hostUserId,
+              gameId,
+              sessionName: session.sessionName ?? 'Sala sem nome',
+              isPublic: session.isPublic !== false,
+              maxPlayers: session.maxPlayers ?? 4,
+              currentPlayers: session.currentPlayers ?? 0,
+              status: session.status ?? 'waiting',
+              createdAt: normalizeTimestamp(session.createdAt),
+              host: hostUserId ? hostMap.get(hostUserId) : undefined,
+              game: gameId ? gameMap.get(gameId) : undefined
+            } satisfies GameSession;
+          });
+
+          if (active) {
+            setSessions(enrichedSessions);
+            setLoading(false);
+          }
+        })().catch((error) => {
+          console.error('Failed to process sessions', error);
+          if (active) {
+            setSessions([]);
+            setLoading(false);
+          }
+        });
+      },
+      (error) => {
+        console.error('Failed to subscribe to sessions', error);
+        if (active) {
+          setSessions([]);
+          setLoading(false);
         }
-      )
-      .subscribe();
+      }
+    );
 
     return () => {
-      clearInterval(refreshInterval);
-      supabase.removeChannel(channel);
+      active = false;
+      unsubscribe();
+    };
+  }, [sessionsQuery]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadGames = async () => {
+      try {
+        const gamesQuery = query(collection(db, 'games'), orderBy('title'));
+        const gamesSnapshot = await getDocs(gamesQuery);
+        if (!active) return;
+        const options: GameOption[] = gamesSnapshot.docs.map((docSnap) => {
+          const data = docSnap.data() as any;
+          return {
+            id: docSnap.id,
+            title: data.title ?? 'Game'
+          } satisfies GameOption;
+        });
+        setGames(options);
+      } catch (error) {
+        console.warn('Failed to load games list', error);
+        if (active) {
+          setGames([]);
+        }
+      }
+    };
+
+    loadGames();
+    return () => {
+      active = false;
     };
   }, []);
 
-  const fetchSessions = async () => {
-    try {
-      console.log('[🔍 LOBBY] Buscando salas públicas...');
-      console.log('[🔍 LOBBY] Filtros: status=waiting, is_public=true');
-      
-      const { data, error } = await supabase
-        .from('game_sessions')
-        .select('*')
-        .eq('status', 'waiting')
-        .eq('is_public', true)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('[❌ LOBBY] Erro ao buscar salas:', error);
-        setLoading(false);
-        return;
-      }
-
-      const sessionsData = data || [];
-      console.log(`[✅ LOBBY] ${sessionsData.length} salas públicas encontradas`);
-      
-      if (sessionsData.length > 0) {
-        console.log('[📋 LOBBY] Salas encontradas:');
-        sessionsData.forEach((s, i) => {
-          console.log(`  ${i+1}. "${s.session_name}" - ${s.current_players}/${s.max_players} jogadores - Status: ${s.status} - Pública: ${s.is_public}`);
-        });
-      } else {
-        console.log('[ℹ️ LOBBY] Nenhuma sala pública com status "waiting" encontrada');
-      }
-
-      const hostIds = Array.from(
-        new Set(
-          sessionsData
-            .map((session) => resolveHostId(session))
-            .filter((value): value is string => Boolean(value))
-        )
-      );
-      const gameIds = Array.from(new Set(sessionsData.map((session) => session.game_id).filter(Boolean)));
-
-      let hostMap: Record<string, { username: string }> = {};
-      if (hostIds.length > 0) {
-        const { data: hosts, error: hostError } = await supabase
-          .from('users')
-          .select('id, username')
-          .in('id', hostIds);
-
-        if (hostError) {
-          console.error('[❌ LOBBY] Erro ao buscar hosts:', hostError);
-        } else if (hosts) {
-          hostMap = hosts.reduce((acc, host) => {
-            acc[host.id] = { username: host.username };
-            return acc;
-          }, {} as Record<string, { username: string }>);
-          console.log(`[✅ LOBBY] ${hosts.length} hosts carregados`);
-        }
-      }
-
-      let gamesMap: Record<string, { title: string; thumbnail_url?: string | null }> = {};
-      if (gameIds.length > 0) {
-        const { data: relatedGames, error: gameError } = await supabase
-          .from('games')
-          .select('id, title, thumbnail_url, image_url')
-          .in('id', gameIds);
-
-        if (gameError) {
-          console.error('[❌ LOBBY] Erro ao buscar jogos:', gameError);
-        } else if (relatedGames) {
-          gamesMap = relatedGames.reduce((acc, game) => {
-            acc[game.id] = {
-              title: game.title,
-              thumbnail_url: game.thumbnail_url ?? game.image_url ?? null
-            };
-            return acc;
-          }, {} as Record<string, { title: string; thumbnail_url?: string | null }>);
-          console.log(`[✅ LOBBY] ${relatedGames.length} jogos carregados`);
-        }
-      }
-
-      const enrichedSessions = sessionsData.map((session) => {
-        const resolvedHostId = resolveHostId(session);
-
-        return {
-          ...session,
-          host_user_id: resolvedHostId ?? session.host_user_id,
-          host: resolvedHostId ? hostMap[resolvedHostId] : undefined,
-          game: gamesMap[session.game_id]
-        };
-      });
-
-      console.log(`[✅ LOBBY] ${enrichedSessions.length} salas processadas e prontas para exibição`);
-      setSessions(enrichedSessions);
-    } catch (error) {
-      console.error('[❌ LOBBY] Erro inesperado:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchGames = async () => {
-    const { data } = await supabase
-      .from('games')
-      .select('*')
-      .order('title');
-    setGames(data || []);
-  };
-
   const createSession = async () => {
-    console.log('🎮 [CREATE] Iniciando criação de sala...');
-    console.log('📊 [CREATE] User:', user?.id, user?.username);
-    console.log('📊 [CREATE] Game ID:', newSession.game_id);
-    console.log('📊 [CREATE] Session Name:', newSession.session_name);
-    console.log('📊 [CREATE] Is Public:', newSession.is_public);
-    console.log('📊 [CREATE] Max Players:', newSession.max_players);
+    if (!user?.id) {
+      setCreationError('Você precisa estar logado para criar uma sala.');
+      return;
+    }
+
+    if (!newSession.gameId) {
+      setCreationError('Selecione um jogo antes de criar a sala.');
+      return;
+    }
+
+    if (!newSession.sessionName.trim()) {
+      setCreationError('Digite um nome para a sala.');
+      return;
+    }
 
     if (creatingSession) {
-      console.warn('⚠️ [CREATE] Já existe uma criação em andamento. Aguarde.');
-      return;
-    }
-
-    setCreationError(null);
-
-    if (!user || !user.id) {
-      const message = 'Você precisa estar logado para criar uma sala.';
-      console.error('❌ [CREATE] Usuário não está logado!');
-      setCreationError(message);
-      return;
-    }
-    
-    if (!newSession.game_id || newSession.game_id.trim() === '') {
-      const message = 'Por favor, selecione um jogo antes de criar a sala.';
-      console.error('❌ [CREATE] Nenhum jogo selecionado!');
-      setCreationError(message);
-      return;
-    }
-    
-    if (!newSession.session_name || newSession.session_name.trim() === '') {
-      const message = 'Por favor, digite um nome para a sala.';
-      console.error('❌ [CREATE] Nome da sala vazio!');
-      setCreationError(message);
       return;
     }
 
     setCreatingSession(true);
+    setCreationError(null);
 
     try {
-      console.log('📝 [CREATE] Validando jogo selecionado...');
-      
-      // Validar que o jogo existe
-      const { data: gameCheck, error: gameError } = await supabase
-        .from('games')
-        .select('id, title')
-        .eq('id', newSession.game_id)
-        .single();
-
-      if (gameError || !gameCheck) {
-        console.error('❌ [CREATE] Jogo não encontrado:', gameError);
-        throw new Error('O jogo selecionado não existe. Recarregue a página e tente novamente.');
+      const gameDoc = await getDoc(doc(db, 'games', newSession.gameId));
+      if (!gameDoc.exists()) {
+        throw new Error('Jogo selecionado não encontrado. Recarregue a lista e tente novamente.');
       }
 
-      console.log('✅ [CREATE] Jogo validado:', gameCheck.title);
+      const sessionRef = doc(collection(db, 'game_sessions'));
 
-      const payload = {
-        host_user_id: user.id,
-        game_id: newSession.game_id,
-        session_name: newSession.session_name.trim(),
-        is_public: newSession.is_public,
-        max_players: newSession.max_players,
-        current_players: 1,
-        status: 'waiting'
-      };
-
-      console.log('📤 [CREATE] Criando sessão com payload:', JSON.stringify(payload, null, 2));
-
-      const { data, error } = await supabase
-        .from('game_sessions')
-        .insert(payload)
-        .select()
-        .single();
-
-      if (error) {
-        console.error('❌ [CREATE] Erro ao criar sessão:', {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code
-        });
-        throw error;
-      }
-
-      if (!data) {
-        throw new Error('Sessão criada mas sem dados retornados.');
-      }
-
-      console.log('✅ [CREATE] Sessão criada com sucesso!');
-      console.log('📋 [CREATE] Dados da sessão:', {
-        id: data.id,
-        name: data.session_name,
-        is_public: data.is_public,
-        status: data.status,
-        max_players: data.max_players
+      const batch = writeBatch(db);
+      batch.set(sessionRef, {
+        hostUserId: user.id,
+        gameId: newSession.gameId,
+        sessionName: newSession.sessionName.trim(),
+        isPublic: newSession.isPublic,
+        maxPlayers: newSession.maxPlayers,
+        currentPlayers: 1,
+        status: 'waiting',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
       });
 
-      console.log('👥 [CREATE] Adicionando jogador à sessão...');
+      batch.set(doc(sessionRef, 'players', user.id), {
+        userId: user.id,
+        username: user.username,
+        playerNumber: 1,
+        isReady: false,
+        joinedAt: serverTimestamp()
+      });
 
-      const { error: playerError } = await supabase
-        .from('session_players')
-        .insert({
-          session_id: data.id,
-          user_id: user.id,
-          player_number: 1
-        });
+      await batch.commit();
 
-      if (playerError) {
-        console.error('❌ [CREATE] Erro ao adicionar jogador:', playerError);
-        console.warn('⚠️ [CREATE] Sala criada mas falhou ao adicionar jogador. Continuando...');
-      } else {
-        console.log('✅ [CREATE] Jogador adicionado com sucesso!');
-      }
-
-      // Limpar formulário
       setNewSession({
-        game_id: '',
-        session_name: '',
-        is_public: true,
-        max_players: 4
+        gameId: '',
+        sessionName: '',
+        isPublic: true,
+        maxPlayers: 4
       });
 
-      console.log('🔄 [CREATE] Recarregando lista de salas...');
-      await fetchSessions();
-
-      // Fechar modal
       setShowCreateModal(false);
-      
-      console.log('🚀 [CREATE] Abrindo sessão:', data.id);
-      
-      // Pequeno delay para garantir que a sala foi salva
+
       setTimeout(() => {
-        onJoinSession(data.id);
-      }, 500);
-      
+        onJoinSession(sessionRef.id);
+      }, 300);
     } catch (error: any) {
-      console.error('❌ [CREATE] Erro capturado:', error);
-      const friendlyMessage = getFriendlyErrorMessage(error);
-      setCreationError(friendlyMessage);
-      console.error('💬 [CREATE] Mensagem amigável:', friendlyMessage);
+      console.error('Failed to create session', error);
+      setCreationError(error?.message ?? 'Erro ao criar sala. Tente novamente.');
     } finally {
       setCreatingSession(false);
     }
   };
 
-  const joinSession = async (sessionId: string) => {
-    if (!user) return;
+  const joinSession = async (session: GameSession) => {
+    if (!user?.id) {
+      return;
+    }
 
     try {
-      const session = sessions.find(s => s.id === sessionId);
-      if (!session) return;
+      const sessionRef = doc(db, 'game_sessions', session.id);
+      const playerRef = doc(sessionRef, 'players', user.id);
 
-      // Verificar se o jogador já está na sessão
-      const { data: existingPlayer } = await supabase
-        .from('session_players')
-        .select('*')
-        .eq('session_id', sessionId)
-        .eq('user_id', user.id)
-        .single();
+      await runTransaction(db, async (transaction) => {
+        const sessionSnapshot = await transaction.get(sessionRef);
+        if (!sessionSnapshot.exists()) {
+          throw new Error('Sala não encontrada ou já foi encerrada.');
+        }
 
-      // Se já está na sessão, apenas abre sem adicionar novamente
-      if (existingPlayer) {
-        onJoinSession(sessionId);
-        return;
-      }
+        const sessionData = sessionSnapshot.data() as FirestoreSession;
+        const maxPlayers = sessionData.maxPlayers ?? session.maxPlayers;
+        const currentPlayers = sessionData.currentPlayers ?? session.currentPlayers;
 
-      // Adicionar jogador à sessão
-      await supabase.from('session_players').insert({
-        session_id: sessionId,
-        user_id: user.id,
-        player_number: session.current_players + 1
+        if (currentPlayers >= maxPlayers) {
+          throw new Error('Sala está cheia.');
+        }
+
+        const existingPlayer = await transaction.get(playerRef);
+        if (!existingPlayer.exists()) {
+          transaction.set(playerRef, {
+            userId: user.id,
+            username: user.username,
+            playerNumber: Math.min(maxPlayers, currentPlayers + 1),
+            isReady: false,
+            joinedAt: serverTimestamp()
+          });
+
+          transaction.update(sessionRef, {
+            currentPlayers: increment(1),
+            updatedAt: serverTimestamp()
+          });
+        }
       });
 
-      await supabase
-        .from('game_sessions')
-        .update({ current_players: session.current_players + 1 })
-        .eq('id', sessionId);
-
-      onJoinSession(sessionId);
-    } catch (error) {
-      console.error('Error joining session:', error);
+      onJoinSession(session.id);
+    } catch (error: any) {
+      console.error('Failed to join session', error);
+      alert(error?.message ?? 'Erro ao entrar na sala. Tente novamente.');
     }
-  };
-
-  const getTimeAgo = (timestamp: string) => {
-    const seconds = Math.floor((new Date().getTime() - new Date(timestamp).getTime()) / 1000);
-    if (seconds < 60) return `${seconds}s ago`;
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    return `${hours}h ago`;
-  };
-
-  const getFriendlyErrorMessage = (error: any) => {
-    if (!error) return 'Erro desconhecido ao criar sala.';
-    const rawMessage = error.message || error.error_description || error.details || 'Erro desconhecido ao criar sala.';
-    if (typeof rawMessage !== 'string') {
-      return 'Erro ao criar sala. Tente novamente em alguns segundos.';
-    }
-
-    const message = rawMessage.toLowerCase();
-
-    if (message.includes('row-level security')) {
-      return 'Permissão negada para criar sala. Faça login novamente e tente de novo.';
-    }
-
-    if (message.includes('duplicate key value') && message.includes('session_players_session_id_user_id_key')) {
-      return 'Você já está participando desta sala.';
-    }
-
-    if (message.includes('duplicate key value') && message.includes('session_players_session_id_player_number_key')) {
-      return 'Número de jogador já utilizado nessa sala. Tente novamente em alguns segundos.';
-    }
-
-    if (message.includes('foreign key violation')) {
-      return 'Jogo selecionado não foi encontrado. Recarregue a página e selecione o jogo novamente.';
-    }
-
-    if (message.includes('invalid input syntax for type uuid')) {
-      return 'ID do jogo inválido. Recarregue a lista de jogos antes de criar a sala.';
-    }
-
-    return rawMessage;
   };
 
   return (
@@ -422,10 +390,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
                 <Crown className="w-5 h-5" />
                 <span>Criar Sala (HOST)</span>
               </button>
-              <button
-                onClick={onClose}
-                className="p-3 hover:bg-gray-800 rounded-xl transition-colors"
-              >
+              <button onClick={onClose} className="p-3 hover:bg-gray-800 rounded-xl transition-colors">
                 <X className="w-6 h-6 text-gray-400" />
               </button>
             </div>
@@ -452,28 +417,26 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
                   <Crown className="w-5 h-5" />
                   <span>Criar Sala como HOST</span>
                 </button>
-                <p className="text-gray-600 text-sm">
-                  Como HOST você cria a sala e outros jogadores podem entrar
-                </p>
+                <p className="text-gray-600 text-sm">Como HOST você cria a sala e outros jogadores podem entrar</p>
               </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {sessions.map((session) => {
-                const isFull = session.current_players >= session.max_players;
-                const resolvedHostId = resolveHostId(session);
-                const isMySession = resolvedHostId === user?.id;
-                
+                const isFull = session.currentPlayers >= session.maxPlayers;
+                const isMySession = session.hostUserId === user?.id;
+
                 return (
                   <div
                     key={session.id}
                     className={`group relative bg-gray-800/50 backdrop-blur-xl rounded-2xl border overflow-hidden transition-all duration-300 ${
-                      isFull ? 'border-red-500/30 opacity-60' : 
-                      isMySession ? 'border-purple-500/50 hover:border-purple-400' :
-                      'border-gray-700 hover:border-cyan-400/50 hover:scale-105'
+                      isFull
+                        ? 'border-red-500/30 opacity-60'
+                        : isMySession
+                        ? 'border-purple-500/50 hover:border-purple-400'
+                        : 'border-gray-700 hover:border-cyan-400/50 hover:scale-105'
                     }`}
                   >
-                    {/* Indicador visual de HOST ou CHEIA */}
                     {isMySession && (
                       <div className="absolute top-3 right-3 z-10">
                         <span className="flex items-center gap-1 px-3 py-1.5 bg-purple-500/90 backdrop-blur-sm border border-purple-400 rounded-full shadow-lg shadow-purple-500/50">
@@ -496,21 +459,19 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
                       <div className="flex items-start justify-between mb-4">
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-2">
-                            {session.is_public ? (
+                            {session.isPublic ? (
                               <Unlock className="w-4 h-4 text-green-400" />
                             ) : (
                               <Lock className="w-4 h-4 text-red-400" />
                             )}
-                            <span className={`text-xs font-bold ${session.is_public ? 'text-green-400' : 'text-red-400'}`}>
-                              {session.is_public ? 'PÚBLICA' : 'PRIVADA'}
+                            <span className={`text-xs font-bold ${session.isPublic ? 'text-green-400' : 'text-red-400'}`}>
+                              {session.isPublic ? 'PÚBLICA' : 'PRIVADA'}
                             </span>
                           </div>
                           <h3 className="text-xl font-black text-white mb-1 group-hover:text-cyan-400 transition-colors">
-                            {session.session_name}
+                            {session.sessionName}
                           </h3>
-                          <p className="text-gray-400 text-sm">
-                            {session.game?.title || 'Carregando jogo...'}
-                          </p>
+                          <p className="text-gray-400 text-sm">{session.game?.title || 'Carregando jogo...'}</p>
                         </div>
                       </div>
 
@@ -521,9 +482,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
                           </div>
                           <div>
                             <div className="flex items-center gap-2">
-                              <p className="text-white text-sm font-bold">
-                                {session.host?.username || 'Host'}
-                              </p>
+                              <p className="text-white text-sm font-bold">{session.host?.username || 'Host'}</p>
                               <span className="flex items-center gap-1 px-2 py-0.5 bg-yellow-500/20 border border-yellow-500/40 rounded-full">
                                 <Crown className="w-3 h-3 text-yellow-400" />
                                 <span className="text-yellow-400 text-xs font-bold">HOST</span>
@@ -539,7 +498,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
                           }`}>
                             <Users className={`w-4 h-4 ${isFull ? 'text-red-400' : 'text-cyan-400'}`} />
                             <span className={`font-bold text-sm ${isFull ? 'text-red-400' : 'text-cyan-400'}`}>
-                              {session.current_players}/{session.max_players}
+                              {session.currentPlayers}/{session.maxPlayers}
                             </span>
                           </div>
                         </div>
@@ -548,7 +507,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 text-gray-500 text-xs">
                           <Clock className="w-3.5 h-3.5" />
-                          <span>{getTimeAgo(session.created_at)}</span>
+                          <span>{getTimeAgo(session.createdAt)}</span>
                         </div>
 
                         {isMySession ? (
@@ -569,7 +528,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
                           </button>
                         ) : (
                           <button
-                            onClick={() => joinSession(session.id)}
+                            onClick={() => joinSession(session)}
                             className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-green-500 to-emerald-500 rounded-lg font-bold hover:shadow-lg hover:shadow-green-500/50 transition-all duration-300"
                           >
                             <Play className="w-4 h-4" />
@@ -601,21 +560,14 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
                   ✨ Você será o <strong>HOST</strong> - Outros jogadores poderão entrar na sua sala
                 </p>
               </div>
-              <button
-                onClick={() => setShowCreateModal(false)}
-                className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
-              >
+              <button onClick={() => setShowCreateModal(false)} className="p-2 hover:bg-gray-800 rounded-lg transition-colors">
                 <X className="w-6 h-6 text-gray-400" />
               </button>
             </div>
 
             <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl p-4 mb-6">
               <p className="text-cyan-300 text-sm">
-                💡 <strong>Como funciona:</strong><br/>
-                1️⃣ Você cria a sala e vira o HOST<br/>
-                2️⃣ A sala aparece na lista para outros jogadores<br/>
-                3️⃣ Outros jogadores clicam em "Entrar" para jogar com você<br/>
-                4️⃣ Quando todos estiverem prontos, o jogo começa!
+                💡 <strong>Como funciona:</strong><br />1️⃣ Você cria a sala e vira o HOST<br />2️⃣ A sala aparece na lista para outros jogadores<br />3️⃣ Outros jogadores clicam em "Entrar" para jogar com você<br />4️⃣ Quando todos estiverem prontos, o jogo começa!
               </p>
             </div>
 
@@ -624,8 +576,8 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
                 <label className="block text-sm font-bold text-gray-400 mb-2">Nome da Sala</label>
                 <input
                   type="text"
-                  value={newSession.session_name}
-                  onChange={(e) => setNewSession({ ...newSession, session_name: e.target.value })}
+                  value={newSession.sessionName}
+                  onChange={(e) => setNewSession((prev) => ({ ...prev, sessionName: e.target.value }))}
                   placeholder="Minha Sala Épica"
                   className="w-full px-4 py-3 bg-gray-800 text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-400"
                 />
@@ -634,8 +586,8 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
               <div>
                 <label className="block text-sm font-bold text-gray-400 mb-2">Selecionar Jogo</label>
                 <select
-                  value={newSession.game_id}
-                  onChange={(e) => setNewSession({ ...newSession, game_id: e.target.value })}
+                  value={newSession.gameId}
+                  onChange={(e) => setNewSession((prev) => ({ ...prev, gameId: e.target.value }))}
                   className="w-full px-4 py-3 bg-gray-800 text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-400"
                 >
                   <option value="">Escolha um jogo...</option>
@@ -650,8 +602,8 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
               <div>
                 <label className="block text-sm font-bold text-gray-400 mb-2">Máximo de Jogadores</label>
                 <select
-                  value={newSession.max_players}
-                  onChange={(e) => setNewSession({ ...newSession, max_players: parseInt(e.target.value) })}
+                  value={newSession.maxPlayers}
+                  onChange={(e) => setNewSession((prev) => ({ ...prev, maxPlayers: parseInt(e.target.value, 10) }))}
                   className="w-full px-4 py-3 bg-gray-800 text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-400"
                 >
                   {[2, 3, 4, 5, 6, 7, 8].map((num) => (
@@ -666,8 +618,8 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
                 <input
                   type="checkbox"
                   id="is_public"
-                  checked={newSession.is_public}
-                  onChange={(e) => setNewSession({ ...newSession, is_public: e.target.checked })}
+                  checked={newSession.isPublic}
+                  onChange={(e) => setNewSession((prev) => ({ ...prev, isPublic: e.target.checked }))}
                   className="w-5 h-5 accent-cyan-500"
                 />
                 <label htmlFor="is_public" className="text-white font-medium">
@@ -677,14 +629,8 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
 
               <button
                 onClick={createSession}
-                disabled={creatingSession || !newSession.game_id || !newSession.session_name}
+                disabled={creatingSession || !newSession.gameId || !newSession.sessionName.trim()}
                 className="w-full py-4 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl font-bold text-lg hover:shadow-xl hover:shadow-purple-500/50 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                title={
-                  creatingSession ? 'Criando sala...' :
-                  !newSession.session_name ? 'Digite um nome para a sala' :
-                  !newSession.game_id ? 'Selecione um jogo' :
-                  'Clique para criar a sala'
-                }
               >
                 {creatingSession ? (
                   <>
@@ -698,14 +644,13 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
                   </>
                 )}
               </button>
-              
-              {/* Debug info */}
-              {(!newSession.game_id || !newSession.session_name) && (
+
+              {(!newSession.sessionName.trim() || !newSession.gameId) && (
                 <div className="mt-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
                   <strong>⚠️ Preencha todos os campos:</strong>
                   <ul className="mt-1 ml-4 list-disc">
-                    {!newSession.session_name && <li>Nome da sala</li>}
-                    {!newSession.game_id && <li>Selecione um jogo</li>}
+                    {!newSession.sessionName.trim() && <li>Nome da sala</li>}
+                    {!newSession.gameId && <li>Selecione um jogo</li>}
                   </ul>
                 </div>
               )}

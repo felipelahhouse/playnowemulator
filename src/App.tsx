@@ -1,6 +1,8 @@
 import { useState } from 'react';
-import { AuthProvider, useAuth, supabase } from './contexts/AuthContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useTheme } from './contexts/ThemeContext';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from './lib/firebase';
 import Header from './components/Layout/Header';
 import HeroSection from './components/Hero/HeroSection';
 import GameLibrary from './components/Games/GameLibrary';
@@ -21,10 +23,11 @@ interface NetPlaySessionData {
   isHost: boolean;
 }
 
-interface StreamingData {
+interface StreamingData extends StreamConfig {
   gameId: string;
   romPath: string;
   gameTitle?: string;
+  gameCover?: string | null;
 }
 
 interface StreamSetupData {
@@ -51,10 +54,11 @@ function AppContent() {
     // Agora sim inicia a stream com as configurações
     setStreamingData({
       gameId: streamSetupData.game.id,
-      romPath: streamSetupData.game.rom_url,
-      gameTitle: config.title, // Usa o título personalizado
-      ...config // Passa todas as configurações
-    } as any);
+      romPath: streamSetupData.game.romUrl,
+      gameTitle: streamSetupData.game.title,
+      gameCover: streamSetupData.game.cover ?? streamSetupData.game.coverUrl ?? null,
+      ...config
+    });
     
     setStreamSetupData(null);
   };
@@ -157,45 +161,43 @@ function AppContent() {
             console.log('🚀 Abrindo sessão:', sessionId);
             setShowMultiplayerLobby(false);
             
-            // Buscar dados da sessão para abrir o jogo
-            supabase
-              .from('game_sessions')
-              .select('*')
-              .eq('id', sessionId)
-              .single()
-              .then(async ({ data, error }) => {
-                if (error || !data) {
-                  console.error('❌ Erro ao buscar sessão:', error);
+            // Buscar dados da sessão para abrir o jogo (Firebase)
+            const loadSessionData = async () => {
+              try {
+                const sessionDoc = await getDoc(doc(db, 'game_sessions', sessionId));
+                
+                if (!sessionDoc.exists()) {
+                  console.error('❌ Sessão não encontrada');
                   alert('Erro ao entrar na sala. Tente novamente.');
                   return;
                 }
 
-                try {
-                  const { data: game, error: gameError } = await supabase
-                    .from('games')
-                    .select('title, rom_url')
-                    .eq('id', data.game_id)
-                    .single();
+                const sessionData = sessionDoc.data();
+                const gameDoc = await getDoc(doc(db, 'games', sessionData.game_id));
 
-                  if (gameError || !game) {
-                    console.error('❌ Erro ao buscar jogo:', gameError);
-                    alert('Erro ao carregar informações do jogo.');
-                    return;
-                  }
-
-                  console.log('✅ Sessão encontrada:', data);
-                  setNetPlaySession({
-                    sessionId: data.id,
-                    gameId: data.game_id,
-                    gameTitle: game.title,
-                    romPath: game.rom_url,
-                    isHost: data.host_user_id === user?.id
-                  });
-                } catch (fetchError) {
-                  console.error('❌ Erro geral ao carregar sessão:', fetchError);
-                  alert('Erro ao carregar dados da sala.');
+                if (!gameDoc.exists()) {
+                  console.error('❌ Jogo não encontrado');
+                  alert('Erro ao carregar informações do jogo.');
+                  return;
                 }
-              });
+
+                const gameData = gameDoc.data();
+                console.log('✅ Sessão encontrada:', sessionData);
+                
+                setNetPlaySession({
+                  sessionId: sessionDoc.id,
+                  gameId: sessionData.game_id,
+                  gameTitle: gameData.title,
+                  romPath: gameData.romUrl,
+                  isHost: sessionData.host_user_id === user?.id
+                });
+              } catch (error) {
+                console.error('❌ Erro ao carregar sessão:', error);
+                alert('Erro ao carregar dados da sala.');
+              }
+            };
+
+            loadSessionData();
           }}
         />
       )}
@@ -216,6 +218,14 @@ function AppContent() {
           gameId={streamingData.gameId}
           romPath={streamingData.romPath}
           gameTitle={streamingData.gameTitle}
+          gameCover={streamingData.gameCover}
+          title={streamingData.title}
+          fps={streamingData.fps}
+          quality={streamingData.quality}
+          enableCamera={streamingData.enableCamera}
+          enableMic={streamingData.enableMic}
+          cameraDeviceId={streamingData.cameraDeviceId}
+          micDeviceId={streamingData.micDeviceId}
           onEndStream={() => setStreamingData(null)}
         />
       )}

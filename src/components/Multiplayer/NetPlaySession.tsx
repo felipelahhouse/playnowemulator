@@ -1,6 +1,21 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { X, Users, Wifi, Eye, Mic, MicOff, Camera, CameraOff, MessageCircle } from 'lucide-react';
-import { supabase } from '../../contexts/AuthContext';
+import {
+  collection,
+  doc,
+  onSnapshot,
+  setDoc,
+  deleteDoc,
+  updateDoc,
+  serverTimestamp,
+  query,
+  orderBy,
+  limit,
+  addDoc,
+  getDocs,
+  writeBatch
+} from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface NetPlaySessionProps {
@@ -46,7 +61,8 @@ const NetPlaySession: React.FC<NetPlaySessionProps> = ({
 }) => {
   const { user } = useAuth();
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const channelRef = useRef<any>(null);
+  const presenceRef = useRef<string | null>(null);
+  const unsubscribersRef = useRef<(() => void)[]>([]);
   
   const handleClose = () => {
     if (onClose) onClose();
@@ -62,187 +78,229 @@ const NetPlaySession: React.FC<NetPlaySessionProps> = ({
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [currentFrame, setCurrentFrame] = useState(0);
 
-  // Conectar ao canal de realtime
+  // Gerenciar presença e real-time com Firestore
   useEffect(() => {
-    const channel = supabase.channel(`netplay-${sessionId}`);
-    channelRef.current = channel;
+    if (!user?.id) return;
 
-    channel
-      .on('presence', { event: 'sync' }, () => {
-        const state = channel.presenceState();
-        
-        // Separar players e espectadores
-        const playersList: Player[] = [];
-        const seenPlayers = new Set<string>();
-        let spectatorCount = 0;
+    const setupRealtimeSession = async () => {
+      try {
+        // Criar documento de presença do jogador
+        const playerPresenceRef = doc(db, 'game_sessions', sessionId, 'presence', user.id);
+        presenceRef.current = user.id;
 
-        Object.values(state).forEach((presences: any) => {
-          const presence = presences[0];
-          if (presence.role === 'player' && !seenPlayers.has(presence.user_id)) {
-            seenPlayers.add(presence.user_id);
-            playersList.push({
-              id: presence.user_id,
-              username: presence.username,
-              player_number: presence.player_number || 1,
-              is_ready: presence.is_ready || false
-            });
-          } else if (presence.role === 'spectator') {
-            spectatorCount++;
-          }
+        await setDoc(playerPresenceRef, {
+          userId: user.id,
+          username: user.username,
+          role: 'player',
+          playerNumber: isHost ? 1 : 2,
+          isReady: false,
+          joinedAt: serverTimestamp(),
+          lastSeen: serverTimestamp(),
+          gameId: gameId
         });
 
-        setPlayers(playersList);
-        setSpectators(spectatorCount);
-      })
-      .on('broadcast', { event: 'game-input' }, (payload: any) => {
-        handleGameInput(payload.payload);
-      })
-      .on('broadcast', { event: 'game-sync' }, (payload: any) => {
-        handleGameSync(payload.payload);
-      })
-      .on('broadcast', { event: 'chat-message' }, (payload: any) => {
-        const msg: ChatMessage = payload.payload;
-        setChatMessages(prev => [...prev.slice(-50), msg]);
-      })
-      .on('broadcast', { event: 'ping' }, (payload: any) => {
-        if (payload.payload.to === user?.id) {
-          channel.send({
-            type: 'broadcast',
-            event: 'pong',
-            payload: {
-              to: payload.payload.from,
-              timestamp: payload.payload.timestamp
+        // Listener para presença dos jogadores
+        const presenceQuery = collection(db, 'game_sessions', sessionId, 'presence');
+        const unsubPresence = onSnapshot(presenceQuery, (snapshot) => {
+          const playersList: Player[] = [];
+          let spectatorCount = 0;
+
+          snapshot.forEach((docSnap) => {
+            const data = docSnap.data();
+            if (data.role === 'player') {
+              playersList.push({
+                id: data.userId,
+                username: data.username,
+                player_number: data.playerNumber || 1,
+                is_ready: data.isReady || false
+              });
+            } else if (data.role === 'spectator') {
+              spectatorCount++;
             }
           });
-        }
-      })
-      .on('broadcast', { event: 'pong' }, (payload: any) => {
-        if (payload.payload.to === user?.id) {
-          const latencyMs = Date.now() - payload.payload.timestamp;
-          setLatency(latencyMs);
-        }
-      })
-      .subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          await channel.track({
-            user_id: user?.id,
-            username: user?.username,
-            role: 'player',
-            player_number: isHost ? 1 : 2,
-            is_ready: false,
-            joined_at: new Date().toISOString(),
-            game_id: gameId
-          });
-          setConnected(true);
-        }
-      });
 
-    // Ping periódico para medir latência
-    const pingInterval = setInterval(() => {
-      if (channel && connected) {
-        channel.send({
-          type: 'broadcast',
-          event: 'ping',
-          payload: {
-            from: user?.id,
-            to: 'all',
-            timestamp: Date.now()
-          }
+          setPlayers(playersList);
+          setSpectators(spectatorCount);
         });
+
+        // Listener para inputs do jogo
+        const gameInputsQuery = query(
+          collection(db, 'game_sessions', sessionId, 'game_inputs'),
+          orderBy('timestamp', 'desc'),
+          limit(50)
+        );
+        
+        const unsubInputs = onSnapshot(gameInputsQuery, (snapshot) => {
+          snapshot.docChanges().forEach((change) => {
+            if (change.type === 'added') {
+              const data = change.doc.data();
+              handleGameInput(data as GameState);
+            }
+          });
+        });
+
+        // Listener para sincronização do jogo
+        const gameSyncQuery = query(
+          collection(db, 'game_sessions', sessionId, 'game_sync'),
+          orderBy('timestamp', 'desc'),
+          limit(1)
+        );
+        
+        const unsubSync = onSnapshot(gameSyncQuery, (snapshot) => {
+          snapshot.docChanges().forEach((change) => {
+            if (change.type === 'added') {
+              const data = change.doc.data();
+              handleGameSync(data as GameState);
+            }
+          });
+        });
+
+        // Listener para chat
+        const chatQuery = query(
+          collection(db, 'game_sessions', sessionId, 'chat'),
+          orderBy('timestamp', 'asc'),
+          limit(100)
+        );
+        
+        const unsubChat = onSnapshot(chatQuery, (snapshot) => {
+          const messages: ChatMessage[] = [];
+          snapshot.forEach((docSnap) => {
+            const data = docSnap.data();
+            messages.push({
+              id: docSnap.id,
+              username: data.username,
+              message: data.message,
+              timestamp: data.timestamp?.toMillis() || Date.now()
+            });
+          });
+          setChatMessages(messages.slice(-50));
+        });
+
+        unsubscribersRef.current = [unsubPresence, unsubInputs, unsubSync, unsubChat];
+        setConnected(true);
+
+        // Atualizar lastSeen periodicamente
+        const heartbeatInterval = setInterval(async () => {
+          if (presenceRef.current) {
+            await updateDoc(playerPresenceRef, {
+              lastSeen: serverTimestamp()
+            });
+          }
+        }, 3000);
+
+        // Medir latência periodicamente
+        const pingInterval = setInterval(() => {
+          const start = Date.now();
+          // Simular ping usando tempo de resposta do Firestore
+          updateDoc(playerPresenceRef, { lastSeen: serverTimestamp() })
+            .then(() => {
+              setLatency(Date.now() - start);
+            })
+            .catch(() => setLatency(999));
+        }, 5000);
+
+        return () => {
+          clearInterval(heartbeatInterval);
+          clearInterval(pingInterval);
+        };
+      } catch (error) {
+        console.error('Error setting up realtime session:', error);
+        setConnected(false);
       }
-    }, 2000);
+    };
+
+    setupRealtimeSession();
 
     return () => {
-      clearInterval(pingInterval);
-      
-      // Remover jogador da sessão ao sair
+      // Cleanup: remover presença e listeners
       const cleanup = async () => {
         try {
-          await channel.untrack();
-          
-          console.log(`[🚪 SAINDO] Jogador ${user?.username} saindo da sessão ${sessionId}`);
+          // Unsubscribe de todos os listeners
+          unsubscribersRef.current.forEach(unsub => unsub());
+          unsubscribersRef.current = [];
+
+          if (!user?.id) return;
+
+          console.log(`[🚪 SAINDO] Jogador ${user.username} saindo da sessão ${sessionId}`);
           console.log(`[🚪 SAINDO] É host? ${isHost}`);
-          
+
+          // Remover documento de presença
+          if (presenceRef.current) {
+            await deleteDoc(doc(db, 'game_sessions', sessionId, 'presence', presenceRef.current));
+          }
+
           // Se for o host, deletar a sala inteira
           if (isHost) {
-            console.log('[🗑️ HOST SAINDO] Deletando sala e todos os jogadores...');
+            console.log('[🗑️ HOST SAINDO] Deletando sala e todos os dados...');
+
+            const batch = writeBatch(db);
+
+            // Deletar subcoleções
+            const subcollections = ['presence', 'players', 'game_inputs', 'game_sync', 'chat'];
             
-            // Deletar todos os jogadores da sala primeiro
-            const { error: playersDeleteError } = await supabase
-              .from('session_players')
-              .delete()
-              .eq('session_id', sessionId);
-            
-            if (playersDeleteError) {
-              console.error('[❌] Erro ao deletar jogadores:', playersDeleteError);
-            } else {
-              console.log('[✓] Jogadores removidos da sala');
+            for (const subcol of subcollections) {
+              const snapshot = await getDocs(collection(db, 'game_sessions', sessionId, subcol));
+              snapshot.docs.forEach((docSnap) => {
+                batch.delete(docSnap.ref);
+              });
             }
-            
-            // Deletar a sala
-            const { error: sessionDeleteError } = await supabase
-              .from('game_sessions')
-              .delete()
-              .eq('id', sessionId);
-            
-            if (sessionDeleteError) {
-              console.error('[❌] Erro ao deletar sala:', sessionDeleteError);
-            } else {
-              console.log('[✓] Sala deletada com sucesso!');
-            }
-            
-            return; // Sai aqui pois já deletou tudo
+
+            // Deletar a sessão principal
+            batch.delete(doc(db, 'game_sessions', sessionId));
+
+            await batch.commit();
+            console.log('[✓] Sala e todos os dados deletados com sucesso!');
+            return;
           }
-          
+
           // Se não for host, apenas remover este jogador
-          await supabase
-            .from('session_players')
-            .delete()
-            .eq('session_id', sessionId)
-            .eq('user_id', user?.id);
-          
-          console.log(`[✓] Jogador ${user?.username} removido da sala`);
-          
+          const playerDocRef = doc(db, 'game_sessions', sessionId, 'players', user.id);
+          await deleteDoc(playerDocRef);
+
+          console.log(`[✓] Jogador ${user.username} removido da sala`);
+
           // Verificar quantos jogadores restaram
-          const { count: playerCount } = await supabase
-            .from('session_players')
-            .select('*', { count: 'exact' })
-            .eq('session_id', sessionId);
-          
-          console.log(`[📊] Jogadores restantes: ${playerCount || 0}`);
-          
+          const playersSnapshot = await getDocs(collection(db, 'game_sessions', sessionId, 'players'));
+          const playerCount = playersSnapshot.size;
+
+          console.log(`[📊] Jogadores restantes: ${playerCount}`);
+
           // Se não sobrou ninguém, deletar a sala
-          if (!playerCount || playerCount === 0) {
+          if (playerCount === 0) {
             console.log('[🗑️ SALA VAZIA] Não há mais jogadores, deletando sala...');
+
+            const batch = writeBatch(db);
+
+            // Deletar subcoleções
+            const subcollections = ['presence', 'game_inputs', 'game_sync', 'chat'];
             
-            const { error: sessionDeleteError } = await supabase
-              .from('game_sessions')
-              .delete()
-              .eq('id', sessionId);
-            
-            if (sessionDeleteError) {
-              console.error('[❌] Erro ao deletar sala vazia:', sessionDeleteError);
-            } else {
-              console.log('[✓] Sala vazia deletada com sucesso!');
+            for (const subcol of subcollections) {
+              const snapshot = await getDocs(collection(db, 'game_sessions', sessionId, subcol));
+              snapshot.docs.forEach((docSnap) => {
+                batch.delete(docSnap.ref);
+              });
             }
+
+            batch.delete(doc(db, 'game_sessions', sessionId));
+            await batch.commit();
+
+            console.log('[✓] Sala vazia deletada com sucesso!');
           } else {
             // Atualizar contagem de jogadores
-            await supabase
-              .from('game_sessions')
-              .update({ current_players: playerCount })
-              .eq('id', sessionId);
-            
+            await updateDoc(doc(db, 'game_sessions', sessionId), {
+              currentPlayers: playerCount
+            });
+
             console.log(`[✓] Contagem de jogadores atualizada: ${playerCount}`);
           }
         } catch (error) {
           console.error('Error cleaning up session:', error);
         }
       };
-      
+
       cleanup();
-      channel.unsubscribe();
     };
-  }, [sessionId, user, isHost, connected, gameId]);
+  }, [sessionId, user, isHost, gameId]);
 
   // Comunicação com o emulador via postMessage
   useEffect(() => {
@@ -263,8 +321,8 @@ const NetPlaySession: React.FC<NetPlaySessionProps> = ({
     return () => window.removeEventListener('message', handleMessage);
   }, [isHost]);
 
-  const broadcastInput = useCallback((inputData: any) => {
-    if (!channelRef.current || !user) return;
+  const broadcastInput = useCallback(async (inputData: any) => {
+    if (!user) return;
 
     const gameState: GameState = {
       type: 'input',
@@ -274,15 +332,18 @@ const NetPlaySession: React.FC<NetPlaySessionProps> = ({
       timestamp: Date.now()
     };
 
-    channelRef.current.send({
-      type: 'broadcast',
-      event: 'game-input',
-      payload: gameState
-    });
-  }, [user, currentFrame]);
+    try {
+      await addDoc(collection(db, 'game_sessions', sessionId, 'game_inputs'), {
+        ...gameState,
+        createdAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error('Error broadcasting input:', error);
+    }
+  }, [user, currentFrame, sessionId]);
 
-  const broadcastSync = useCallback((syncData: any) => {
-    if (!channelRef.current || !user || !isHost) return;
+  const broadcastSync = useCallback(async (syncData: any) => {
+    if (!user || !isHost) return;
 
     const gameState: GameState = {
       type: 'sync',
@@ -292,12 +353,15 @@ const NetPlaySession: React.FC<NetPlaySessionProps> = ({
       timestamp: Date.now()
     };
 
-    channelRef.current.send({
-      type: 'broadcast',
-      event: 'game-sync',
-      payload: gameState
-    });
-  }, [user, isHost, currentFrame]);
+    try {
+      await addDoc(collection(db, 'game_sessions', sessionId, 'game_sync'), {
+        ...gameState,
+        createdAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error('Error broadcasting sync:', error);
+    }
+  }, [user, isHost, currentFrame, sessionId]);
 
   const handleGameInput = (gameState: GameState) => {
     // Não processar nossos próprios inputs
@@ -333,39 +397,35 @@ const NetPlaySession: React.FC<NetPlaySessionProps> = ({
     }
   };
 
-  const sendChatMessage = (message: string) => {
-    if (!channelRef.current || !user || !message.trim()) return;
+  const sendChatMessage = async (message: string) => {
+    if (!user || !message.trim()) return;
 
-    const chatMsg: ChatMessage = {
-      id: `${user.id}-${Date.now()}`,
-      username: user.username,
-      message: message.trim(),
-      timestamp: Date.now()
-    };
-
-    channelRef.current.send({
-      type: 'broadcast',
-      event: 'chat-message',
-      payload: chatMsg
-    });
-
-    setChatMessages(prev => [...prev.slice(-50), chatMsg]);
+    try {
+      await addDoc(collection(db, 'game_sessions', sessionId, 'chat'), {
+        userId: user.id,
+        username: user.username,
+        message: message.trim(),
+        timestamp: serverTimestamp()
+      });
+    } catch (error) {
+      console.error('Error sending chat message:', error);
+    }
   };
 
   const toggleReady = async () => {
-    if (!channelRef.current) return;
+    if (!user?.id || !presenceRef.current) return;
 
-    const currentPlayer = players.find(p => p.id === user?.id);
+    const currentPlayer = players.find(p => p.id === user.id);
     const newReadyState = !currentPlayer?.is_ready;
 
-    await channelRef.current.track({
-      user_id: user?.id,
-      username: user?.username,
-      role: 'player',
-      player_number: isHost ? 1 : 2,
-      is_ready: newReadyState,
-      joined_at: new Date().toISOString()
-    });
+    try {
+      await updateDoc(doc(db, 'game_sessions', sessionId, 'presence', presenceRef.current), {
+        isReady: newReadyState,
+        lastSeen: serverTimestamp()
+      });
+    } catch (error) {
+      console.error('Error toggling ready state:', error);
+    }
   };
 
   return (

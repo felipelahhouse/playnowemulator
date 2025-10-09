@@ -1,66 +1,65 @@
-// Service Worker para cache inteligente
-const CACHE_NAME = 'playnowemu-v1';
-const urlsToCache = [
-  '/',
-  '/index.html',
-  '/assets/index.css',
-  '/assets/index.js'
-];
+const CACHE_NAME = 'playnowemu-v2';
+const PRECACHE_URLS = ['/', '/index.html'];
 
-// Install - cachear assets
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => {
-        console.log('✅ Cache aberto');
-        return cache.addAll(urlsToCache);
-      })
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(PRECACHE_URLS).catch((error) => {
+        console.warn('⚠️ Falha ao pré-carregar assets', error);
+      });
+    })
   );
   self.skipWaiting();
 });
 
-// Activate - limpar caches antigos
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
+    caches.keys().then((cacheNames) =>
+      Promise.all(
         cacheNames.map((cacheName) => {
           if (cacheName !== CACHE_NAME) {
-            console.log('🗑️ Deletando cache antigo:', cacheName);
             return caches.delete(cacheName);
           }
+          return undefined;
         })
-      );
-    })
+      )
+    )
   );
   self.clients.claim();
 });
 
-// Fetch - estratégia Network First (sempre tenta rede, fallback para cache)
 self.addEventListener('fetch', (event) => {
+  const request = event.request;
+  const url = new URL(request.url);
+
+  // Apenas intercepte requisições do mesmo domínio
+  if (url.origin !== self.location.origin) {
+    return;
+  }
+
+  // Não cacheia chamadas de navegação de login/logout para evitar loops
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request).catch(() => caches.match('/index.html'))
+    );
+    return;
+  }
+
   event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        // Se a resposta é válida, atualiza o cache
-        if (response && response.status === 200) {
-          const responseToCache = response.clone();
-          caches.open(CACHE_NAME)
-            .then((cache) => {
-              cache.put(event.request, responseToCache);
+    caches.match(request).then((cached) => {
+      const networkFetch = fetch(request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(request, clone);
             });
-        }
-        return response;
-      })
-      .catch(() => {
-        // Se falhar, tenta buscar do cache
-        return caches.match(event.request)
-          .then((response) => {
-            if (response) {
-              return response;
-            }
-            // Se não tiver no cache, retorna offline page
-            return caches.match('/index.html');
-          });
-      })
+          }
+          return response;
+        })
+        .catch(() => cached);
+
+      return cached || networkFetch;
+    })
   );
 });

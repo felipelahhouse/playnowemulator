@@ -1,6 +1,18 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { X, Eye, Heart, MessageCircle, Share2, Radio, Users } from 'lucide-react';
-import { supabase } from '../../contexts/AuthContext';
+import {
+  Timestamp,
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc
+} from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface SpectatorViewProps {
@@ -8,6 +20,7 @@ interface SpectatorViewProps {
   streamTitle: string;
   streamerName: string;
   gameTitle: string;
+  gameCover?: string | null;
   onClose: () => void;
 }
 
@@ -23,12 +36,14 @@ const SpectatorView: React.FC<SpectatorViewProps> = ({
   streamTitle,
   streamerName,
   gameTitle,
+  gameCover,
   onClose
 }) => {
   const { user } = useAuth();
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const channelRef = useRef<any>(null);
-  
+  const viewerDocIdRef = useRef<string>('');
+
   const [viewers, setViewers] = useState(0);
   const [likes, setLikes] = useState(0);
   const [hasLiked, setHasLiked] = useState(false);
@@ -36,118 +51,207 @@ const SpectatorView: React.FC<SpectatorViewProps> = ({
   const [isLive, setIsLive] = useState(true);
   const [quality, setQuality] = useState<'high' | 'medium' | 'low'>('high');
 
-  useEffect(() => {
-    const channel = supabase.channel(`stream-${streamId}`);
-    channelRef.current = channel;
+  const viewerCollectionRef = useMemo(
+    () => collection(db, 'live_streams', streamId, 'viewers'),
+    [streamId]
+  );
+  const likesCollectionRef = useMemo(
+    () => collection(db, 'live_streams', streamId, 'likes'),
+    [streamId]
+  );
+  const chatCollectionRef = useMemo(
+    () => collection(db, 'live_streams', streamId, 'chat'),
+    [streamId]
+  );
+  const frameDocRef = useMemo(() => doc(db, 'live_stream_frames', streamId), [streamId]);
+  const streamDocRef = useMemo(() => doc(db, 'live_streams', streamId), [streamId]);
 
-    channel
-      .on('presence', { event: 'sync' }, () => {
-        const state = channel.presenceState();
-        const spectators = Object.values(state)
-          .flat()
-          .filter((entry: any) => entry?.role === 'spectator');
-        setViewers(spectators.length);
-      })
-      // Frame streaming
-      .on('broadcast', { event: 'frame' }, (payload: any) => {
-        drawFrame(payload.payload);
-      })
-      // Chat
-      .on('broadcast', { event: 'chat' }, (payload: any) => {
-        const msg: ChatMessage = payload.payload;
-        setChatMessages(prev => [...prev.slice(-50), msg]);
-      })
-      // Stream events
-      .on('broadcast', { event: 'stream-ended' }, () => {
-        setIsLive(false);
-      })
-      .subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          await channel.track({
-            user_id: user?.id || 'anonymous',
-            username: user?.username || 'Anonymous',
-            role: 'spectator',
-            joined_at: new Date().toISOString()
-          });
-        }
-      });
+  const drawFrame = useCallback((imageData: string | null | undefined) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-    // Atualizar contagem de visualizações no banco
-    const updateViews = async () => {
-      await supabase
-        .from('live_streams')
-        .update({ viewer_count: viewers })
-        .eq('id', streamId);
-    };
-
-    const viewInterval = setInterval(updateViews, 5000);
-
-    return () => {
-      clearInterval(viewInterval);
-      channel.unsubscribe();
-    };
-  }, [streamId, user, viewers]);
-
-  const drawFrame = (frameData: any) => {
-    if (!canvasRef.current) return;
-
-    const ctx = canvasRef.current.getContext('2d');
+    const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Desenhar frame recebido (base64 ou ImageData)
+    if (!imageData) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+
     const img = new Image();
     img.onload = () => {
-      ctx.drawImage(img, 0, 0, canvasRef.current!.width, canvasRef.current!.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     };
-    img.src = frameData.image;
-  };
+    img.src = imageData;
+  }, []);
+
+  useEffect(() => {
+    const unsubscribers: Array<() => void> = [];
+    let isMounted = true;
+
+    const unsubscribeStream = onSnapshot(
+      streamDocRef,
+      (snapshot) => {
+        if (!isMounted) return;
+        const data = snapshot.data() as any;
+        if (!data) {
+          setIsLive(false);
+          return;
+        }
+
+        setIsLive(Boolean(data.isLive));
+        if (typeof data.viewerCount === 'number') {
+          setViewers(data.viewerCount);
+        }
+      },
+      (error) => {
+        console.error('Failed to subscribe to stream doc:', error);
+      }
+    );
+    unsubscribers.push(unsubscribeStream);
+
+    const unsubscribeFrame = onSnapshot(
+      frameDocRef,
+      (snapshot) => {
+        if (!isMounted) return;
+        const data = snapshot.data() as { image?: string | null } | undefined;
+        drawFrame(data?.image ?? null);
+      },
+      (error) => {
+        console.error('Failed to subscribe to stream frame:', error);
+      }
+    );
+    unsubscribers.push(unsubscribeFrame);
+
+    const chatQueryRef = query(chatCollectionRef, orderBy('timestamp', 'asc'));
+    const unsubscribeChat = onSnapshot(
+      chatQueryRef,
+      (snapshot) => {
+        if (!isMounted) return;
+
+        const messages = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data() as any;
+          const timestamp = data.timestamp as Timestamp | undefined;
+          return {
+            id: docSnap.id,
+            username: data.username ?? 'Viewer',
+            message: data.message ?? '',
+            timestamp: timestamp ? timestamp.toMillis() : Date.now()
+          } satisfies ChatMessage;
+        });
+
+        setChatMessages(messages.slice(-100));
+      },
+      (error) => {
+        console.error('Failed to subscribe to chat messages:', error);
+      }
+    );
+    unsubscribers.push(unsubscribeChat);
+
+    const unsubscribeLikes = onSnapshot(
+      likesCollectionRef,
+      (snapshot) => {
+        if (!isMounted) return;
+        setLikes(snapshot.size);
+        if (user?.id) {
+          setHasLiked(snapshot.docs.some((docSnap) => docSnap.id === user.id));
+        } else {
+          setHasLiked(false);
+        }
+      },
+      (error) => {
+        console.error('Failed to subscribe to stream likes:', error);
+      }
+    );
+    unsubscribers.push(unsubscribeLikes);
+
+    const unsubscribeViewers = onSnapshot(
+      viewerCollectionRef,
+      (snapshot) => {
+        if (!isMounted) return;
+        setViewers(snapshot.size);
+      },
+      (error) => {
+        console.error('Failed to subscribe to stream viewers:', error);
+      }
+    );
+    unsubscribers.push(unsubscribeViewers);
+
+    const viewerId = user?.id ?? `anonymous-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
+    viewerDocIdRef.current = viewerId;
+
+    setDoc(
+      doc(viewerCollectionRef, viewerId),
+      {
+        userId: user?.id ?? null,
+        username: user?.username ?? 'Spectator',
+        joinedAt: serverTimestamp()
+      },
+      { merge: true }
+    ).catch((error) => {
+      console.warn('Failed to register viewer:', error);
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
+      const viewerDocId = viewerDocIdRef.current;
+      if (viewerDocId) {
+        deleteDoc(doc(viewerCollectionRef, viewerDocId)).catch((error) => {
+          console.warn('Failed to unregister viewer:', error);
+        });
+      }
+      drawFrame(null);
+    };
+  }, [chatCollectionRef, drawFrame, frameDocRef, likesCollectionRef, streamDocRef, user?.id, user?.username, viewerCollectionRef]);
 
   const sendMessage = (message: string) => {
-    if (!channelRef.current || !message.trim() || !user) return;
+    if (!message.trim() || !user) return;
 
-    const msg: ChatMessage = {
-      id: `${user.id}-${Date.now()}`,
+    addDoc(chatCollectionRef, {
       username: user.username,
       message: message.trim(),
-      timestamp: Date.now()
-    };
-
-    channelRef.current.send({
-      type: 'broadcast',
-      event: 'chat',
-      payload: msg
+      timestamp: serverTimestamp(),
+      userId: user.id
+    }).catch((error) => {
+      console.warn('Failed to send chat message:', error);
     });
   };
 
   const toggleLike = async () => {
     if (!user) return;
 
-    if (hasLiked) {
-      setLikes(prev => prev - 1);
-      setHasLiked(false);
-      
-      await supabase
-        .from('stream_likes')
-        .delete()
-        .eq('stream_id', streamId)
-        .eq('user_id', user.id);
-    } else {
-      setLikes(prev => prev + 1);
-      setHasLiked(true);
-      
-      await supabase
-        .from('stream_likes')
-        .insert({
-          stream_id: streamId,
-          user_id: user.id
+    const likeDocRef = doc(likesCollectionRef, user.id);
+
+    try {
+      if (hasLiked) {
+        await deleteDoc(likeDocRef);
+        setHasLiked(false);
+      } else {
+        await setDoc(likeDocRef, {
+          userId: user.id,
+          username: user.username,
+          createdAt: serverTimestamp()
         });
+        setHasLiked(true);
+      }
+    } catch (error) {
+      console.error('Failed to toggle like:', error);
     }
   };
 
   const shareStream = () => {
     const url = `${window.location.origin}/stream/${streamId}`;
-    navigator.clipboard.writeText(url);
-    // Mostrar toast de copiado
+    if (navigator.share) {
+      navigator
+        .share({
+          title: streamTitle,
+          url
+        })
+        .catch(() => navigator.clipboard.writeText(url));
+    } else {
+      navigator.clipboard.writeText(url);
+    }
   };
 
   return (
@@ -165,7 +269,9 @@ const SpectatorView: React.FC<SpectatorViewProps> = ({
               )}
               <div>
                 <h1 className="text-white font-bold text-lg">{streamTitle}</h1>
-                <p className="text-gray-400 text-sm">{streamerName} • {gameTitle}</p>
+                <p className="text-gray-400 text-sm">
+                  {streamerName} • {gameTitle}
+                </p>
               </div>
             </div>
 
@@ -185,7 +291,7 @@ const SpectatorView: React.FC<SpectatorViewProps> = ({
           <div className="flex items-center gap-2">
             <select
               value={quality}
-              onChange={(e) => setQuality(e.target.value as any)}
+              onChange={(e) => setQuality(e.target.value as 'high' | 'medium' | 'low')}
               className="px-3 py-2 bg-gray-800 text-white rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-cyan-400"
             >
               <option value="high">High Quality</option>
@@ -225,13 +331,8 @@ const SpectatorView: React.FC<SpectatorViewProps> = ({
       <div className="flex-1 flex overflow-hidden">
         {/* Video Area */}
         <div className="flex-1 flex items-center justify-center bg-black relative">
-          <canvas
-            ref={canvasRef}
-            width={1280}
-            height={720}
-            className="max-w-full max-h-full"
-          />
-          
+          <canvas ref={canvasRef} width={1280} height={720} className="max-w-full max-h-full" />
+
           {!isLive && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/80">
               <div className="text-center">
@@ -248,9 +349,17 @@ const SpectatorView: React.FC<SpectatorViewProps> = ({
           {/* Stream Info */}
           <div className="p-4 border-b border-gray-800">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-cyan-400 to-purple-400 flex items-center justify-center text-lg font-bold text-white">
-                {streamerName[0].toUpperCase()}
-              </div>
+              {gameCover ? (
+                <img
+                  src={gameCover}
+                  alt={streamerName}
+                  className="w-12 h-12 rounded-full object-cover"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-cyan-400 to-purple-400 flex items-center justify-center text-lg font-bold text-white">
+                  {streamerName[0]?.toUpperCase?.() ?? 'P'}
+                </div>
+              )}
               <div className="flex-1">
                 <p className="text-white font-bold">{streamerName}</p>
                 <p className="text-gray-400 text-sm flex items-center gap-1">
@@ -267,7 +376,7 @@ const SpectatorView: React.FC<SpectatorViewProps> = ({
               <div key={msg.id} className="animate-slide-up">
                 <div className="flex items-start gap-2">
                   <div className="w-6 h-6 rounded-full bg-gradient-to-br from-cyan-400 to-purple-400 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
-                    {msg.username[0].toUpperCase()}
+                    {msg.username[0]?.toUpperCase?.() ?? 'V'}
                   </div>
                   <div className="flex-1">
                     <p className="text-cyan-400 text-sm font-bold">{msg.username}</p>
@@ -284,10 +393,10 @@ const SpectatorView: React.FC<SpectatorViewProps> = ({
               <MessageCircle className="w-5 h-5 text-gray-400" />
               <input
                 type="text"
-                placeholder={user ? "Send a message..." : "Login to chat"}
+                placeholder={user ? 'Send a message...' : 'Login to chat'}
                 disabled={!user}
                 className="flex-1 px-3 py-2 bg-gray-800 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400 disabled:opacity-50"
-                onKeyPress={(e) => {
+                onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     sendMessage(e.currentTarget.value);
                     e.currentTarget.value = '';

@@ -1,6 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Search, Filter, Star, Users, Calendar, Gamepad2, Zap, TrendingUp, Radio, Globe } from 'lucide-react';
-import { supabase } from '../../contexts/AuthContext';
+import {
+  collection,
+  doc,
+  getDocs,
+  increment,
+  orderBy,
+  query,
+  updateDoc,
+} from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import type { Game } from '../../types';
 import GamePlayer from './GamePlayer';
 import { useRealTimePlayers } from '../../hooks/useRealTimePlayers';
@@ -10,126 +19,119 @@ interface GameLibraryProps {
   onCreateMultiplayer?: (game: Game) => void;
 }
 
-const GameLibrary: React.FC<GameLibraryProps> = ({ 
-  onStartStream,
-  onCreateMultiplayer 
-}) => {
+const GameLibrary: React.FC<GameLibraryProps> = ({ onStartStream, onCreateMultiplayer }) => {
   const [games, setGames] = useState<Game[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedGenre, setSelectedGenre] = useState('all');
   const [sortBy, setSortBy] = useState('popular');
-  const [loading, setLoading] = useState(true);
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
-  
-  // Hook para jogadores online em tempo real
+
   const { getPlayersForGame, getTotalOnlinePlayers } = useRealTimePlayers();
 
-  // Mapeamento de capas dos jogos
-  const gameCovers: Record<string, string> = {
-    'aladdin': '/aladdinsnes.jpg',
-    'donkey kong country': '/Donkey_Kong_Country_SNES_cover.png',
-    'super mario world': '/Super_Mario_World_Coverart.png',
-    'battletoads & double dragon': '/BattleToadsDoubleDragon.jpg',
-    'battletoads in battlemaniacs': '/Battletoads_in_Battlemaniacs.png',
-    'castlevania': '/Castlevania_Dracula_X_cover_art.png',
-    'dracula x': '/Castlevania_Dracula_X_cover_art.png',
-    'dragon ball z': '/SNES_Dragon_Ball_Z_-_Super_Butōden_2_cover_art.jpg',
-    'fatal fury 2': '/Fatal Fury 2 .jpg',
-    'fatal fury special': '/Fatal Fury Special (E) (61959).jpg',
-    'goof troop': '/Goof Troop (E).jpg',
-    'international superstar soccer': '/International-Superstar-Soccer-Deluxe-box-art.webp',
-    'joe & mac 2': '/Joe & Mac 2 - Lost in the Tropics (U).jpg',
-    'killer instinct': '/Killer Instinct (E) [!].jpg',
-    'magical quest': '/The_Magical_Quest_starring_Mickey_Mouse_%28NA%29.webp',
-    'mickey mouse': '/The_Magical_Quest_starring_Mickey_Mouse_%28NA%29.webp',
-    'mickey to donald': '/Mickey to Donald - Magical Adventure 3 (J) [t2].jpg',
-    'magical adventure 3': '/Mickey to Donald - Magical Adventure 3 (J) [t2].jpg',
-    'power rangers: the movie': '/Mighty Morphin Power Rangers - The Movie (U).jpg',
-    'power rangers (u)': '/Mighty Morphin Power Rangers (U).jpg',
-    'mighty morphin': '/Mighty Morphin Power Rangers (U).jpg',
-    'street fighter alpha': '/Street Fighter Alpha 2 (U) [!].jpg',
-    'super double dragon': '/super double dragon.jpg',
-    'super mario kart': '/Super Mario Kart .webp',
-    'super star wars': '/Super Star Wars - The Empire Strikes Back.jpg',
-    'empire strikes back': '/Super Star Wars - The Empire Strikes Back.jpg',
-    'top gear': '/Top_Gear_cover_art.jpg',
-  };
-
-  const getGameCover = (game: Game): string | undefined => {
-    if (game.image_url) return game.image_url;
-    
-    const titleLower = game.title.toLowerCase();
-    for (const [key, cover] of Object.entries(gameCovers)) {
-      if (titleLower.includes(key)) {
-        return cover;
-      }
-    }
-    return undefined;
-  };
-
   useEffect(() => {
-    fetchGames();
+    const loadGames = async () => {
+      try {
+        setLoading(true);
+        const gamesRef = collection(db, 'games');
+        const gamesQuery = query(gamesRef, orderBy('playCount', 'desc'));
+        const snapshot = await getDocs(gamesQuery);
+
+        const loadedGames: Game[] = snapshot.docs.map((docSnapshot) => {
+          const data = docSnapshot.data();
+          return {
+            id: docSnapshot.id,
+            title: data.title || 'Untitled',
+            description: data.description ?? null,
+            cover: data.cover ?? null,
+            coverUrl: data.coverUrl ?? data.cover ?? null,
+            playCount: data.playCount ?? 0,
+            multiplayerSupport: data.multiplayerSupport ?? false,
+            romUrl: data.romUrl ?? '',
+            platform: data.platform ?? 'snes',
+            genre: data.genre ?? null,
+            year: data.year ?? null,
+            players: data.players ?? (data.multiplayerSupport ? 2 : 1),
+            rating: data.rating ?? 4.5,
+            publisher: data.publisher ?? null,
+            createdAt: data.createdAt?.toDate?.()?.toISOString?.() ?? data.createdAt ?? new Date().toISOString(),
+          } satisfies Game;
+        });
+
+        setGames(loadedGames);
+      } catch (error) {
+        console.error('Error fetching games from Firestore:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void loadGames();
   }, []);
 
-  const fetchGames = async () => {
-    try {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from('games')
-        .select('*')
-        .order('play_count', { ascending: false });
-
-      if (error) throw error;
-
-      // Remove duplicatas mantendo apenas o primeiro de cada título
-      const uniqueGames = (data || []).reduce((acc: Game[], current) => {
-        const exists = acc.find(game => game.title === current.title);
-        if (!exists) {
-          acc.push(current);
-        }
-        return acc;
-      }, []);
-
-      setGames(uniqueGames);
-    } catch (error) {
-      console.error('Error fetching games:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const genres = ['all', 'Platform', 'Arcade', 'Fighting', 'Puzzle', 'RPG', 'Sports', 'Action', 'Adventure'];
-
-  const filteredGames = games
-    .filter(game =>
-      game.title.toLowerCase().includes(searchTerm.toLowerCase()) &&
-      (selectedGenre === 'all' || game.genre === selectedGenre)
-    )
-    .sort((a, b) => {
-      switch (sortBy) {
-        case 'popular':
-          return b.play_count - a.play_count;
-        case 'rating':
-          return b.rating - a.rating;
-        case 'newest':
-          return (b.year || 0) - (a.year || 0);
-        case 'alphabetical':
-          return a.title.localeCompare(b.title);
-        default:
-          return 0;
+  const genres = useMemo(() => {
+    const baseGenres = new Set<string>(['all']);
+    games.forEach((game) => {
+      if (game.genre) {
+        baseGenres.add(game.genre);
       }
     });
+    return Array.from(baseGenres);
+  }, [games]);
+
+  const filteredGames = useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+    const normalizedGenre = selectedGenre.toLowerCase();
+
+    return [...games]
+      .filter((game) => {
+        const titleMatch =
+          normalizedSearch.length === 0 ||
+          game.title.toLowerCase().includes(normalizedSearch) ||
+          (game.genre ? game.genre.toLowerCase().includes(normalizedSearch) : false);
+
+        const genreMatch =
+          normalizedGenre === 'all' ||
+          (game.genre ? game.genre.toLowerCase() === normalizedGenre : false);
+
+        return titleMatch && genreMatch;
+      })
+      .sort((a, b) => {
+        switch (sortBy) {
+          case 'popular':
+            return (b.playCount ?? 0) - (a.playCount ?? 0);
+          case 'rating':
+            return (b.rating ?? 0) - (a.rating ?? 0);
+          case 'newest':
+            return (b.year ?? 0) - (a.year ?? 0);
+          case 'alphabetical':
+            return a.title.localeCompare(b.title);
+          default:
+            return 0;
+        }
+      });
+  }, [games, searchTerm, selectedGenre, sortBy]);
+
+  const getCover = (game: Game) => game.coverUrl ?? game.cover ?? '/covers/placeholder.png';
 
   const handlePlayGame = async (game: Game) => {
     try {
-      await supabase
-        .from('games')
-        .update({ play_count: (game.play_count || 0) + 1 })
-        .eq('id', game.id);
+      const gameRef = doc(db, 'games', game.id);
+      await updateDoc(gameRef, {
+        playCount: increment(1),
+      });
 
-      setSelectedGame(game);
+      setGames((prevGames) =>
+        prevGames.map((existing) =>
+          existing.id === game.id
+            ? { ...existing, playCount: (existing.playCount ?? 0) + 1 }
+            : existing
+        )
+      );
     } catch (error) {
       console.error('Error updating play count:', error);
+    } finally {
+      setSelectedGame(game);
     }
   };
 
@@ -263,8 +265,8 @@ const GameLibrary: React.FC<GameLibraryProps> = ({
                     <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/0 via-purple-500/0 to-pink-500/0 group-hover:from-cyan-500/5 group-hover:via-purple-500/5 group-hover:to-pink-500/5 transition-all duration-500" />
 
                     <div className="relative aspect-video overflow-hidden bg-gradient-to-br from-cyan-900/30 to-purple-900/30">
-                      {getGameCover(game) ? (
-                        <img src={getGameCover(game)} alt={game.title} className="w-full h-full object-cover" />
+                      {getCover(game) ? (
+                        <img src={getCover(game)} alt={game.title} className="w-full h-full object-cover" />
                       ) : (
                         <div className="absolute inset-0 flex items-center justify-center">
                           <Gamepad2 className="w-20 h-20 text-cyan-400/20" />
@@ -293,7 +295,7 @@ const GameLibrary: React.FC<GameLibraryProps> = ({
 
                       <div className="absolute top-3 right-3 flex items-center space-x-1 bg-yellow-500/90 backdrop-blur-sm px-2 py-1 rounded-lg">
                         <Star className="w-4 h-4 text-white fill-current" />
-                        <span className="text-white text-sm font-bold">{game.rating}</span>
+                          <span className="text-white text-sm font-bold">{(game.rating ?? 4.5).toFixed(1)}</span>
                       </div>
                       
                       {/* Indicador de Jogadores Online - Posicionado abaixo da estrela */}
@@ -338,20 +340,20 @@ const GameLibrary: React.FC<GameLibraryProps> = ({
                       </h3>
 
                       <p className="text-gray-400 text-sm mb-4 line-clamp-2 leading-relaxed">
-                        {game.description}
+                        {game.description ?? 'Description coming soon for this classic!'}
                       </p>
 
                       <div className="flex items-center justify-between text-xs text-gray-500 mb-4 pb-4 border-b border-gray-800">
                         <div className="flex items-center space-x-1">
                           <Users className="w-4 h-4 text-cyan-400" />
-                          <span className="font-bold">{game.players}P</span>
+                          <span className="font-bold">{(game.players ?? 1)}P</span>
                         </div>
                         <div className="flex items-center space-x-1">
                           <Calendar className="w-4 h-4 text-purple-400" />
-                          <span className="font-bold">{game.year}</span>
+                          <span className="font-bold">{game.year ?? '—'}</span>
                         </div>
                         <div className="px-2 py-1 bg-cyan-500/10 border border-cyan-500/20 rounded text-cyan-400 font-bold">
-                          {game.play_count?.toLocaleString()} plays
+                          {(game.playCount ?? 0).toLocaleString()} plays
                         </div>
                       </div>
 
@@ -402,7 +404,7 @@ const GameLibrary: React.FC<GameLibraryProps> = ({
                     </div>
                     <div className="h-12 w-px bg-gray-700" />
                     <div className="text-center">
-                      <div className="text-4xl font-black text-purple-400 mb-1">{games.reduce((sum, g) => sum + (g.play_count || 0), 0).toLocaleString()}</div>
+                      <div className="text-4xl font-black text-purple-400 mb-1">{games.reduce((sum, g) => sum + (g.playCount || 0), 0).toLocaleString()}</div>
                       <div className="text-sm text-gray-400 font-bold">Total Plays</div>
                     </div>
                     <div className="h-12 w-px bg-gray-700" />
@@ -427,7 +429,7 @@ const GameLibrary: React.FC<GameLibraryProps> = ({
       {selectedGame && (
         <GamePlayer
           gameTitle={selectedGame.title}
-          romPath={selectedGame.rom_url}
+          romPath={selectedGame.romUrl}
           onClose={() => setSelectedGame(null)}
         />
       )}

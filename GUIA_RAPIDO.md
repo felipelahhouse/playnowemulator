@@ -1,96 +1,189 @@
-# 🚀 Guia Rápido - Novos Recursos PlayNowEmu
+# 🚀 GUIA RÁPIDO - PlayNowEmu# 🚀 Guia Rápido - Novos Recursos PlayNowEmu
 
-## 🌍 Mudança de Idioma
 
-### Como Mudar o Idioma do Site
+
+## ⚡ Deploy em 3 minutos## 🌍 Mudança de Idioma
+
+
+
+### 1️⃣ Ativar Email/Password no Firebase### Como Mudar o Idioma do Site
+
+🔗 https://console.firebase.google.com/project/planowemulator/authentication/providers
 
 1. **Encontre o Seletor de Idioma**
-   - Vá para o topo da página (header)
-   - No canto superior direito, procure pelo ícone de **globo 🌐**
+
+- Clique em **"Email/Password"**   - Vá para o topo da página (header)
+
+- **ATIVE** o toggle   - No canto superior direito, procure pelo ícone de **globo 🌐**
+
+- Salvar
 
 2. **Escolha Seu Idioma**
-   - Click no ícone do globo
-   - Verá 3 opções com bandeiras:
+
+### 2️⃣ Ativar Google Sign-In (Opcional)   - Click no ícone do globo
+
+🔗 https://console.firebase.google.com/project/planowemulator/authentication/providers   - Verá 3 opções com bandeiras:
+
      - 🇧🇷 **Português** (Brasil)
-     - 🇺🇸 **English** (Estados Unidos)
-     - 🇪🇸 **Español** (Espanha)
 
-3. **Pronto!**
+- Clique em **"Google"**     - 🇺🇸 **English** (Estados Unidos)
+
+- **ATIVE** o toggle     - 🇪🇸 **Español** (Espanha)
+
+- Email de suporte: `seu-email@gmail.com`
+
+- Salvar3. **Pronto!**
+
    - O site inteiro muda para o idioma escolhido
-   - Sua escolha fica salva automaticamente
-   - Mesmo se fechar o navegador, vai lembrar
 
----
+### 3️⃣ Adicionar Domínios Autorizados   - Sua escolha fica salva automaticamente
 
-## 🎨 Mudança de Tema
+🔗 https://console.firebase.google.com/project/planowemulator/authentication/settings   - Mesmo se fechar o navegador, vai lembrar
+
+
+
+- Aba **"Authorized domains"**---
+
+- Adicionar:
+
+  - `planowemulator.web.app`## 🎨 Mudança de Tema
+
+  - `localhost`
 
 ### Como Mudar o Tema Visual
 
+---
+
 1. **Encontre o Seletor de Tema**
-   - No header (topo da página)
+
+## 🎮 Testar Localmente   - No header (topo da página)
+
    - Ao lado do seletor de idioma
-   - Ícone de **paleta de cores 🎨**
 
-2. **Escolha Seu Tema Favorito**
+```bash   - Ícone de **paleta de cores 🎨**
+
+# Instalar dependências (primeira vez)
+
+npm install2. **Escolha Seu Tema Favorito**
+
    - Click no ícone da paleta
-   - Opções disponíveis:
-     - 🎮 **Original** - Estilo neon cyan/roxo/rosa (padrão)
-     - 🎃 **Halloween** - Laranja/roxo com efeitos animados
+
+# Rodar em desenvolvimento   - Opções disponíveis:
+
+npm run dev     - 🎮 **Original** - Estilo neon cyan/roxo/rosa (padrão)
+
+```     - 🎃 **Halloween** - Laranja/roxo com efeitos animados
+
      - 🎄 **Natal** - Verde/vermelho festivo
-     - ⚡ **Neon** - Rosa/amarelo/cyan vibrante
 
-3. **Tema Halloween Especial**
+Abre em: http://localhost:5173     - ⚡ **Neon** - Rosa/amarelo/cyan vibrante
+
+
+
+---3. **Tema Halloween Especial**
+
    - **Auto-ativado em Outubro!**
-   - Quando ativar, verá:
-     - 🦇 Morcegos voando pela tela
-     - 👻 Fantasmas flutuantes
-     - 🎃 Abóboras pulando nos cantos
-     - 🕷️ Teias de aranha
-     - 🍂 Folhas de outono caindo
-     - 🎃 Jack-o'-lanterns piscando
 
-4. **Pronto!**
+## 🌐 Fazer Deploy   - Quando ativar, verá:
+
+     - 🦇 Morcegos voando pela tela
+
+```bash     - 👻 Fantasmas flutuantes
+
+# Build + Deploy     - 🎃 Abóboras pulando nos cantos
+
+npm run build     - 🕷️ Teias de aranha
+
+npx firebase-tools deploy     - 🍂 Folhas de outono caindo
+
+```     - 🎃 Jack-o'-lanterns piscando
+
+
+
+Site: https://planowemulator.web.app4. **Pronto!**
+
    - O tema muda instantaneamente
-   - Cores, gradientes e efeitos são atualizados
+
+---   - Cores, gradientes e efeitos são atualizados
+
    - Sua escolha fica salva
+
+## ✅ Checklist Pós-Deploy
 
 ---
 
-## 📸 Como Adicionar Foto de Perfil
+- [ ] Email/Password ativado
 
-### Passo a Passo
+- [ ] Google ativado (opcional)## 📸 Como Adicionar Foto de Perfil
 
-1. **Abrir Configurações de Perfil**
+- [ ] Domínios autorizados adicionados
+
+- [ ] Testou criar conta### Passo a Passo
+
+- [ ] Testou fazer login
+
+- [ ] Testou jogar um jogo1. **Abrir Configurações de Perfil**
+
    - Click no seu **nome de usuário** no header
-   - No menu que aparece, click em **"Editar Perfil"**
 
-2. **Fazer Upload da Foto**
+---   - No menu que aparece, click em **"Editar Perfil"**
+
+
+
+## 🆘 Problemas?2. **Fazer Upload da Foto**
+
    - Verá uma área com seu avatar atual (ou ícone padrão)
-   - Click no botão **"Alterar Foto"**
-   - Selecione uma imagem do seu computador
+
+### Não consigo criar conta   - Click no botão **"Alterar Foto"**
+
+- Verifique se Email/Password está ativado   - Selecione uma imagem do seu computador
+
+- Abra F12 → Console para ver erros
 
 3. **Requisitos da Foto**
-   - ✅ Formatos aceitos: **JPG, PNG, GIF**
-   - ✅ Tamanho máximo: **2MB**
-   - ❌ Outros formatos não funcionam
+
+### Login com Google não funciona   - ✅ Formatos aceitos: **JPG, PNG, GIF**
+
+- Verifique se Google está ativado   - ✅ Tamanho máximo: **2MB**
+
+- Verifique se domínios estão autorizados   - ❌ Outros formatos não funcionam
+
+- Permita pop-ups no navegador
 
 4. **Confirmar**
-   - Você verá um preview da foto
-   - Se estiver bom, click em **"Salvar Alterações"**
-   - Aguarde o upload (barra de progresso aparece)
 
-5. **Pronto!**
+### Site não carrega   - Você verá um preview da foto
+
+- Aguarde 2-3 minutos após deploy   - Se estiver bom, click em **"Salvar Alterações"**
+
+- Limpe cache: Ctrl+Shift+R   - Aguarde o upload (barra de progresso aparece)
+
+
+
+---5. **Pronto!**
+
    - Sua foto aparece:
-     - No header ao lado do seu nome
-     - Em streams que você fizer
-     - Em salas multiplayer
-     - No seu perfil público
 
-### ⚠️ Dicas
+## 📞 Links Úteis     - No header ao lado do seu nome
+
+     - Em streams que você fizer
+
+- **Site:** https://planowemulator.web.app     - Em salas multiplayer
+
+- **Firebase Console:** https://console.firebase.google.com/project/planowemulator     - No seu perfil público
+
+- **Authentication:** https://console.firebase.google.com/project/planowemulator/authentication
+
+- **Firestore:** https://console.firebase.google.com/project/planowemulator/firestore### ⚠️ Dicas
+
 - Use fotos quadradas (ficam melhores)
-- Evite fotos muito escuras
+
+---- Evite fotos muito escuras
+
 - Comprima fotos grandes antes de fazer upload
-- Se der erro, tente uma foto menor
+
+**Pronto! Tudo configurado! 🎉**- Se der erro, tente uma foto menor
+
 
 ---
 

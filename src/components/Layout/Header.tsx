@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth, supabase } from '../../contexts/AuthContext';
+import { useAuth } from '../../contexts/FirebaseAuthContext';
 import { Gamepad as GamepadIcon, User, Settings, LogOut, Trophy, Users, Menu, X, BarChart3 } from 'lucide-react';
 import UserProfile from '../User/UserProfile';
 import SettingsModal from '../Settings/SettingsModal';
@@ -30,31 +30,9 @@ const Header: React.FC = () => {
     }
   };
 
-  // Track online users with Supabase Realtime
+  // Placeholder: could fetch online count from Firestore in future
   useEffect(() => {
-    const channel = supabase.channel('online-users');
-
-    channel
-      .on('presence', { event: 'sync' }, () => {
-        const state = channel.presenceState();
-        const count = Object.keys(state).length;
-        setOnlineCount(count);
-      })
-      .subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          // Track this user as online
-          await channel.track({
-            user_id: user?.id || 'anonymous',
-            username: user?.username || 'Guest',
-            online_at: new Date().toISOString()
-          });
-        }
-      });
-
-    return () => {
-      channel.untrack();
-      supabase.removeChannel(channel);
-    };
+    setOnlineCount(user ? 1 : 0);
   }, [user]);
 
   useEffect(() => {

@@ -1,19 +1,29 @@
 import React, { useEffect, useState } from 'react';
 import { Radio, Eye, Heart, Play } from 'lucide-react';
-import { supabase } from '../../contexts/AuthContext';
+import {
+  Timestamp,
+  collection,
+  doc,
+  getDoc,
+  onSnapshot,
+  orderBy,
+  query,
+  where
+} from 'firebase/firestore';
 import SpectatorView from './SpectatorView';
+import { db } from '../../lib/firebase';
 
 interface Stream {
   id: string;
-  streamer_id: string;
-  game_id: string;
+  streamerId: string;
+  gameId?: string;
   title: string;
-  is_live: boolean;
-  viewer_count: number;
-  started_at: string;
-  streamer_username: string;
-  game_title: string;
-  game_cover?: string | null;
+  isLive: boolean;
+  viewerCount: number;
+  startedAt: string;
+  streamerUsername: string;
+  gameTitle: string;
+  gameCover?: string | null;
 }
 
 const LiveStreamGrid: React.FC = () => {
@@ -22,112 +32,132 @@ const LiveStreamGrid: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadStreams();
+    let isMounted = true;
 
-    // Atualizar a cada 10 segundos
-    const interval = setInterval(loadStreams, 10000);
+    const streamsQuery = query(
+      collection(db, 'live_streams'),
+      where('isLive', '==', true),
+      orderBy('startedAt', 'desc')
+    );
 
-    // Subscrever a mudanças em tempo real
-    const channel = supabase
-      .channel('live-streams')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'live_streams',
-          filter: 'is_live=eq.true'
-        },
-        () => {
-          loadStreams();
+    const unsubscribe = onSnapshot(
+      streamsQuery,
+      async (snapshot) => {
+        if (!isMounted) {
+          return;
         }
-      )
-      .subscribe();
+
+        const rawStreams = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data() as any;
+          const startedAtValue = data.startedAt as Timestamp | string | undefined;
+
+          const normalizeDate = (value: Timestamp | string | Date | undefined): string => {
+            if (!value) return new Date().toISOString();
+            if (value instanceof Timestamp) {
+              return value.toDate().toISOString();
+            }
+            if (value instanceof Date) {
+              return value.toISOString();
+            }
+            if (typeof value === 'string') {
+              return value;
+            }
+            if (typeof (value as any)?.toDate === 'function') {
+              try {
+                return (value as any).toDate().toISOString();
+              } catch (error) {
+                console.warn('Failed to convert date value', value, error);
+              }
+            }
+            return new Date().toISOString();
+          };
+
+          return {
+            id: docSnap.id,
+            streamerId: data.streamerId,
+            gameId: data.gameId,
+            title: data.title ?? 'Untitled Stream',
+            isLive: data.isLive !== false,
+            viewerCount: data.viewerCount ?? 0,
+            startedAt: normalizeDate(startedAtValue),
+            streamerUsername: data.streamerUsername ?? 'Unknown',
+            gameTitle: data.gameTitle ?? 'Unknown Game',
+            gameCover: data.gameCover ?? data.thumbnailUrl ?? null
+          } satisfies Stream;
+        });
+
+        if (rawStreams.length === 0) {
+          setStreams([]);
+          setLoading(false);
+          return;
+        }
+
+        const userIds = Array.from(new Set(rawStreams.map((stream) => stream.streamerId).filter(Boolean)));
+        const gameIds = Array.from(new Set(rawStreams.map((stream) => stream.gameId).filter(Boolean))) as string[];
+
+        const userMap = new Map<string, string>();
+        const gameMap = new Map<string, { title: string; cover?: string | null }>();
+
+        await Promise.all([
+          Promise.all(
+            userIds.map(async (userId) => {
+              if (!userId || userMap.has(userId)) return;
+              try {
+                const userDoc = await getDoc(doc(db, 'users', userId));
+                if (userDoc.exists()) {
+                  const userData = userDoc.data() as any;
+                  userMap.set(userId, userData.username ?? 'Unknown');
+                }
+              } catch (error) {
+                console.warn('Failed to load user', userId, error);
+              }
+            })
+          ),
+          Promise.all(
+            gameIds.map(async (gameId) => {
+              if (!gameId || gameMap.has(gameId)) return;
+              try {
+                const gameDoc = await getDoc(doc(db, 'games', gameId));
+                if (gameDoc.exists()) {
+                  const gameData = gameDoc.data() as any;
+                  gameMap.set(gameId, {
+                    title: gameData.title ?? 'Unknown Game',
+                    cover: gameData.thumbnailUrl ?? gameData.imageUrl ?? gameData.image_url ?? null
+                  });
+                }
+              } catch (error) {
+                console.warn('Failed to load game', gameId, error);
+              }
+            })
+          )
+        ]);
+
+        const enrichedStreams = rawStreams.map((stream) => ({
+          ...stream,
+          streamerUsername: userMap.get(stream.streamerId) ?? stream.streamerUsername,
+          gameTitle: gameMap.get(stream.gameId ?? '')?.title ?? stream.gameTitle,
+          gameCover: gameMap.get(stream.gameId ?? '')?.cover ?? stream.gameCover ?? null
+        }));
+
+        if (isMounted) {
+          setStreams(enrichedStreams);
+          setLoading(false);
+        }
+      },
+      (error) => {
+        console.error('Error loading live streams:', error);
+        if (isMounted) {
+          setStreams([]);
+          setLoading(false);
+        }
+      }
+    );
 
     return () => {
-      clearInterval(interval);
-      channel.unsubscribe();
+      isMounted = false;
+      unsubscribe();
     };
   }, []);
-
-  const loadStreams = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('live_streams')
-        .select('*')
-        .eq('is_live', true)
-        .order('started_at', { ascending: false });
-
-      if (error) throw error;
-
-      const rawStreams = data || [];
-      if (rawStreams.length === 0) {
-        setStreams([]);
-        return;
-      }
-
-      const streamerIds = Array.from(
-        new Set(rawStreams.map((stream) => stream.streamer_id).filter(Boolean))
-      );
-      const gameIds = Array.from(
-        new Set(rawStreams.map((stream) => stream.game_id).filter(Boolean))
-      );
-
-      const [{ data: users, error: usersError }, { data: games, error: gamesError }] = await Promise.all([
-        streamerIds.length
-          ? supabase
-              .from('users')
-              .select('id, username')
-              .in('id', streamerIds)
-          : Promise.resolve({ data: [], error: null }),
-        gameIds.length
-          ? supabase
-              .from('games')
-              .select('id, title, image_url, thumbnail_url')
-              .in('id', gameIds)
-          : Promise.resolve({ data: [], error: null })
-      ]);
-
-      if (usersError) throw usersError;
-      if (gamesError) throw gamesError;
-
-      const userMap = (users || []).reduce<Record<string, string>>((acc, u: any) => {
-        acc[u.id] = u.username;
-        return acc;
-      }, {} as Record<string, string>);
-
-      const gameMap = (games || []).reduce<Record<string, { title: string; cover?: string | null }>>(
-        (acc, g: any) => {
-          acc[g.id] = {
-            title: g.title,
-            cover: g.thumbnail_url ?? g.image_url ?? null
-          };
-          return acc;
-        },
-        {} as Record<string, { title: string; cover?: string | null }>
-      );
-
-      const formattedStreams: Stream[] = rawStreams.map((stream: any) => ({
-        id: stream.id,
-        streamer_id: stream.streamer_id,
-        game_id: stream.game_id,
-        title: stream.title,
-        is_live: stream.is_live,
-        viewer_count: stream.viewer_count ?? 0,
-        started_at: stream.started_at,
-        streamer_username: userMap[stream.streamer_id] || 'Unknown',
-        game_title: gameMap[stream.game_id]?.title || 'Unknown Game',
-        game_cover: gameMap[stream.game_id]?.cover || null
-      }));
-
-      setStreams(formattedStreams);
-    } catch (error) {
-      console.error('Error loading streams:', error);
-      setStreams([]);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const getStreamDuration = (startedAt: string) => {
     const start = new Date(startedAt).getTime();
@@ -148,8 +178,9 @@ const LiveStreamGrid: React.FC = () => {
       <SpectatorView
         streamId={selectedStream.id}
         streamTitle={selectedStream.title}
-        streamerName={selectedStream.streamer_username}
-        gameTitle={selectedStream.game_title}
+        streamerName={selectedStream.streamerUsername}
+        gameTitle={selectedStream.gameTitle}
+        gameCover={selectedStream.gameCover ?? null}
         onClose={() => setSelectedStream(null)}
       />
     );
@@ -205,10 +236,10 @@ const LiveStreamGrid: React.FC = () => {
               >
                 {/* Thumbnail */}
                 <div className="relative aspect-video bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center overflow-hidden">
-                  {stream.game_cover ? (
+                    {stream.gameCover ? (
                     <img
-                      src={stream.game_cover}
-                      alt={stream.game_title}
+                      src={stream.gameCover}
+                      alt={stream.gameTitle}
                       className="w-full h-full object-cover opacity-60 group-hover:opacity-80 transition-all"
                     />
                   ) : (
@@ -225,13 +256,13 @@ const LiveStreamGrid: React.FC = () => {
                   <div className="absolute top-3 right-3 flex items-center gap-1.5 px-2.5 py-1 bg-black/70 backdrop-blur-sm rounded-full">
                     <Eye className="w-3 h-3 text-white" />
                     <span className="text-white font-bold text-xs">
-                      {stream.viewer_count.toLocaleString()}
+                      {stream.viewerCount.toLocaleString()}
                     </span>
                   </div>
 
                   {/* Duration */}
                   <div className="absolute bottom-3 right-3 px-2.5 py-1 bg-black/70 backdrop-blur-sm rounded text-white text-xs font-bold">
-                    {getStreamDuration(stream.started_at)}
+                    {getStreamDuration(stream.startedAt)}
                   </div>
 
                   {/* Play Overlay */}
@@ -250,14 +281,14 @@ const LiveStreamGrid: React.FC = () => {
 
                   <div className="flex items-center gap-2 mb-3">
                     <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-400 to-purple-400 flex items-center justify-center text-sm font-bold text-white">
-                      {stream.streamer_username[0].toUpperCase()}
+                      {stream.streamerUsername[0]?.toUpperCase?.() ?? 'P'}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-gray-400 text-sm truncate">
-                        {stream.streamer_username}
+                        {stream.streamerUsername}
                       </p>
                       <p className="text-gray-500 text-xs truncate">
-                        {stream.game_title}
+                        {stream.gameTitle}
                       </p>
                     </div>
                   </div>
@@ -267,7 +298,7 @@ const LiveStreamGrid: React.FC = () => {
                     <div className="flex items-center gap-1.5">
                       <Eye className="w-4 h-4 text-purple-400" />
                       <span className="text-purple-400 text-sm font-bold">
-                        {stream.viewer_count}
+                        {stream.viewerCount}
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5">

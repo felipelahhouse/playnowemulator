@@ -11,15 +11,19 @@ export interface User {
 export interface Game {
   id: string;
   title: string;
-  description: string;
-  image_url: string;
-  rom_url: string;
+  description?: string | null;
+  cover?: string | null;
+  coverUrl?: string | null;
+  playCount?: number | null;
+  multiplayerSupport?: boolean | null;
+  romUrl: string;
   platform: string;
-  genre: string;
-  year: number;
-  players: number;
-  rating: number;
-  play_count: number;
+  genre?: string | null;
+  year?: number | null;
+  players?: number | null;
+  rating?: number | null;
+  publisher?: string | null;
+  createdAt?: string;
 }
 
 export interface GameSession {

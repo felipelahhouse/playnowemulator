@@ -1,12 +1,26 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Radio, Eye, Heart, MessageCircle, Video, Mic, Settings } from 'lucide-react';
-import { supabase } from '../../contexts/AuthContext';
+import {
+  Timestamp,
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc
+} from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface StreamerViewProps {
   gameId: string;
   romPath: string;
   gameTitle?: string;
+  gameCover?: string | null;
   onEndStream: () => void;
   // Configurações vindas do modal
   title?: string;
@@ -29,6 +43,7 @@ const StreamerView: React.FC<StreamerViewProps> = ({
   gameId,
   romPath,
   gameTitle,
+  gameCover,
   onEndStream,
   title: initialTitle,
   fps: initialFps = 10,
@@ -40,13 +55,14 @@ const StreamerView: React.FC<StreamerViewProps> = ({
 }) => {
   const { user } = useAuth();
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const channelRef = useRef<any>(null);
   const streamIdRef = useRef<string>(crypto.randomUUID());
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const lastFrameTimestampRef = useRef<number>(0);
+  const isEndingRef = useRef<boolean>(false);
 
   const [viewers, setViewers] = useState(0);
-  const [likes] = useState(0);
+  const [likes, setLikes] = useState(0);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamTitle, setStreamTitle] = useState(initialTitle || (gameTitle ? `Playing ${gameTitle}` : ''));
@@ -157,135 +173,159 @@ const StreamerView: React.FC<StreamerViewProps> = ({
   }, []); // Só roda uma vez ao montar
 
   useEffect(() => {
-    if (!isStreaming) return;
+    if (!isStreaming || !user) {
+      return;
+    }
 
-    const channel = supabase.channel(`stream-${streamIdRef.current}`);
-    channelRef.current = channel;
+    const streamId = streamIdRef.current;
+    const streamDocRef = doc(db, 'live_streams', streamId);
+    const frameDocRef = doc(db, 'live_stream_frames', streamId);
 
-    channel
-      .on('presence', { event: 'sync' }, () => {
-        const state = channel.presenceState();
-        // Contar espectadores (excluir o streamer)
-        const spectators = Object.values(state).filter((p: any) => 
-          p[0]?.role === 'spectator'
-        );
-        setViewers(spectators.length);
-      })
-      .on('broadcast', { event: 'chat' }, (payload: any) => {
-        const msg: ChatMessage = payload.payload;
-        setChatMessages(prev => [...prev.slice(-50), msg]);
-      })
-      .subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          await channel.track({
-            user_id: user?.id,
-            username: user?.username,
-            role: 'streamer',
-            stream_id: streamIdRef.current,
-            started_at: new Date().toISOString()
-          });
-        }
-      });
-
-    // Criar registro de stream no banco
     const createStreamRecord = async () => {
-      await supabase.from('live_streams').insert({
-        id: streamIdRef.current,
-        streamer_id: user?.id,
-        game_id: gameId,
-        title: streamTitle || 'Untitled Stream',
-        description: '',
-        is_live: true,
-        viewer_count: 0,
-        started_at: new Date().toISOString()
-      });
+      try {
+        await setDoc(
+          streamDocRef,
+          {
+            title: streamTitle || 'Untitled Stream',
+            streamerId: user.id,
+            streamerUsername: user.username,
+            gameId,
+            gameTitle: gameTitle ?? streamTitle ?? 'Unknown Game',
+            gameCover: gameCover ?? null,
+            isLive: true,
+            viewerCount: 0,
+            startedAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          },
+          { merge: true }
+        );
+
+        await setDoc(
+          frameDocRef,
+          {
+            image: null,
+            updatedAt: serverTimestamp()
+          },
+          { merge: true }
+        );
+      } catch (error) {
+        console.error('Failed to create stream record:', error);
+      }
     };
 
     createStreamRecord();
 
-    return () => {
-      endStream();
-      channel.unsubscribe();
-    };
-  }, [isStreaming, user, gameId, streamTitle]);
+    const chatQuery = query(
+      collection(db, 'live_streams', streamId, 'chat'),
+      orderBy('timestamp', 'asc')
+    );
 
-  useEffect(() => {
-    if (!isStreaming) return;
+    const unsubscribeChat = onSnapshot(chatQuery, (snapshot) => {
+      const messages = snapshot.docs.map((docSnap) => {
+        const data = docSnap.data() as any;
+        const timestamp = data.timestamp as Timestamp | undefined;
+        return {
+          id: docSnap.id,
+          username: data.username ?? 'Viewer',
+          message: data.message ?? '',
+          timestamp: timestamp ? timestamp.toMillis() : Date.now()
+        } satisfies ChatMessage;
+      });
+      setChatMessages(messages.slice(-100));
+    });
 
-    // OTIMIZAÇÃO: Capturar frames com requestAnimationFrame ao invés de interval
-    // Isso é muito mais eficiente e sincronizado com o navegador
+    const unsubscribeViewers = onSnapshot(
+      collection(db, 'live_streams', streamId, 'viewers'),
+      async (snapshot) => {
+        const count = snapshot.size;
+        setViewers(count);
+        try {
+          await updateDoc(streamDocRef, {
+            viewerCount: count,
+            updatedAt: serverTimestamp()
+          });
+        } catch (error) {
+          console.warn('Failed to update viewer count:', error);
+        }
+      }
+    );
+
+    const unsubscribeLikes = onSnapshot(
+      collection(db, 'live_streams', streamId, 'likes'),
+      (snapshot) => {
+        setLikes(snapshot.size);
+      }
+    );
+
     let animationFrameId: number;
-    let lastCaptureTime = 0;
-    const captureInterval = 1000 / fps; // Intervalo entre capturas
 
     const captureLoop = (timestamp: number) => {
-      if (!isStreaming) return;
-
-      // Só captura se passou o intervalo necessário (controle de FPS)
-      if (timestamp - lastCaptureTime >= captureInterval) {
-        captureFrame();
-        lastCaptureTime = timestamp;
+      if (!isStreaming) {
+        return;
       }
 
-      // Continua o loop
+      const minInterval = Math.max(1000 / fps, 500);
+      if (timestamp - lastFrameTimestampRef.current >= minInterval) {
+        captureFrame(frameDocRef);
+        lastFrameTimestampRef.current = timestamp;
+      }
+
       animationFrameId = requestAnimationFrame(captureLoop);
     };
 
-    // Inicia o loop
     animationFrameId = requestAnimationFrame(captureLoop);
 
     return () => {
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-      }
+      cancelAnimationFrame(animationFrameId);
+      unsubscribeChat();
+      unsubscribeViewers();
+      unsubscribeLikes();
+      endStream(streamDocRef, frameDocRef, false);
     };
-  }, [isStreaming, fps]);
+  }, [isStreaming, user, fps, gameId, gameTitle, streamTitle]);
 
-  const captureFrame = () => {
-    if (!iframeRef.current || !channelRef.current) return;
+  const captureFrame = (frameDocRef: ReturnType<typeof doc>) => {
+    if (!iframeRef.current) return;
 
     try {
       const iframe = iframeRef.current;
       const canvas = iframe.contentDocument?.querySelector('canvas');
-      
+
       if (!canvas) return;
 
-      // OTIMIZAÇÃO 1: Redimensionar canvas antes de capturar (menor = mais rápido)
-      const scale = bitrate === 'high' ? 1 : bitrate === 'medium' ? 0.75 : 0.5;
-      const width = canvas.width * scale;
-      const height = canvas.height * scale;
+      const scale = bitrate === 'high' ? 0.6 : bitrate === 'medium' ? 0.45 : 0.3;
+      const width = Math.max(160, Math.floor(canvas.width * scale));
+      const height = Math.max(120, Math.floor(canvas.height * scale));
 
-      // OTIMIZAÇÃO 2: Usar um canvas temporário menor
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = width;
       tempCanvas.height = height;
-      const ctx = tempCanvas.getContext('2d', { 
-        alpha: false, // Sem transparência = mais rápido
-        willReadFrequently: true 
+      const ctx = tempCanvas.getContext('2d', {
+        alpha: false,
+        willReadFrequently: true
       });
 
-      if (!ctx) return;
+      if (!ctx) {
+        tempCanvas.remove();
+        return;
+      }
 
-      // Desenha versão redimensionada
       ctx.drawImage(canvas, 0, 0, width, height);
 
-      // OTIMIZAÇÃO 3: Qualidade JPEG mais baixa para streaming
-      const quality = bitrate === 'high' ? 0.7 : bitrate === 'medium' ? 0.5 : 0.3;
+      const quality = bitrate === 'high' ? 0.7 : bitrate === 'medium' ? 0.5 : 0.35;
       const imageData = tempCanvas.toDataURL('image/jpeg', quality);
 
-      // OTIMIZAÇÃO 4: Enviar sem await (não bloqueia)
-      channelRef.current.send({
-        type: 'broadcast',
-        event: 'frame',
-        payload: {
+      setDoc(
+        frameDocRef,
+        {
           image: imageData,
-          timestamp: Date.now()
-        }
-      }).catch((error: Error) => {
-        console.error('Error sending frame:', error);
+          updatedAt: serverTimestamp()
+        },
+        { merge: true }
+      ).catch((error) => {
+        console.warn('Failed to send frame:', error);
       });
 
-      // Limpa canvas temporário
       tempCanvas.remove();
     } catch (error) {
       console.error('Error capturing frame:', error);
@@ -300,45 +340,58 @@ const StreamerView: React.FC<StreamerViewProps> = ({
     setIsStreaming(true);
   };
 
-  const endStream = async () => {
-    if (channelRef.current) {
-      await channelRef.current.send({
-        type: 'broadcast',
-        event: 'stream-ended',
-        payload: {}
-      });
+  const endStream = async (
+    streamDocRef?: ReturnType<typeof doc>,
+    frameDocRef?: ReturnType<typeof doc>,
+    notify: boolean = true
+  ) => {
+    if (isEndingRef.current) {
+      return;
     }
 
-    // Atualizar registro no banco
-    await supabase
-      .from('live_streams')
-      .update({
-        is_live: false,
-        ended_at: new Date().toISOString()
-      })
-      .eq('id', streamIdRef.current);
+    isEndingRef.current = true;
+
+    try {
+      const docRef = streamDocRef ?? doc(db, 'live_streams', streamIdRef.current);
+      await updateDoc(docRef, {
+        isLive: false,
+        endedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.warn('Failed to update stream status:', error);
+    }
+
+    try {
+      const frameRef = frameDocRef ?? doc(db, 'live_stream_frames', streamIdRef.current);
+      await deleteDoc(frameRef);
+    } catch (error) {
+      console.warn('Failed to cleanup frame data:', error);
+    }
 
     setIsStreaming(false);
-    onEndStream();
+
+    if (notify) {
+      onEndStream();
+    }
+
+    isEndingRef.current = false;
   };
 
   const sendMessage = (message: string) => {
-    if (!channelRef.current || !message.trim() || !user) return;
+    if (!message.trim() || !user) return;
 
-    const msg: ChatMessage = {
-      id: `${user.id}-${Date.now()}`,
+    const streamId = streamIdRef.current;
+    const chatCollectionRef = collection(db, 'live_streams', streamId, 'chat');
+
+    addDoc(chatCollectionRef, {
       username: user.username,
       message: message.trim(),
-      timestamp: Date.now()
-    };
-
-    channelRef.current.send({
-      type: 'broadcast',
-      event: 'chat',
-      payload: msg
+      timestamp: serverTimestamp(),
+      userId: user.id
+    }).catch((error) => {
+      console.warn('Failed to send chat message:', error);
     });
-
-    setChatMessages(prev => [...prev.slice(-50), msg]);
   };
 
   if (!isStreaming) {
@@ -513,7 +566,7 @@ const StreamerView: React.FC<StreamerViewProps> = ({
             </button>
 
             <button
-              onClick={endStream}
+              onClick={() => endStream()}
               className="px-4 py-2.5 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-lg font-bold transition-all border border-red-500/50"
             >
               End Stream

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Trophy, Clock, Gamepad2, Users, Tv, TrendingUp, Zap, Crown, X } from 'lucide-react';
-import { supabase, useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { db } from '../../lib/firebase';
+import { doc, getDoc, collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 
 interface UserStats {
   level: number;
@@ -50,20 +52,25 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ onClose }) => {
     if (!user) return;
 
     try {
-      console.log('[DASHBOARD] Buscando dados do usuário...');
+      console.log('[DASHBOARD] Buscando dados do usuário no Firestore...');
       
-      // Buscar stats do usuário
-      const { data: statsData, error: statsError } = await supabase
-        .from('user_stats')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
-
-      if (statsError) {
-        console.warn('[DASHBOARD] ⚠️ Tabela user_stats não existe ou erro:', statsError.message);
-        // FALLBACK: Usar stats mockadas se tabela não existir
-        if (statsError.code === 'PGRST116' || statsError.message.includes('relation') || statsError.message.includes('does not exist')) {
-          console.log('[DASHBOARD] 📦 Usando dados mockados (migration não aplicada)');
+      // Buscar stats do usuário no Firestore
+      try {
+        const statsDoc = await getDoc(doc(db, 'user_stats', user.id));
+        
+        if (statsDoc.exists()) {
+          const data = statsDoc.data();
+          console.log('[DASHBOARD] ✅ Stats carregadas:', data);
+          setStats({
+            level: data.level || 1,
+            experience: data.experience || 0,
+            total_playtime: data.totalPlaytime || 0,
+            games_played: data.gamesPlayed || 0,
+            multiplayer_sessions: data.multiplayerSessions || 0,
+            streams_created: data.streamsCreated || 0
+          });
+        } else {
+          console.log('[DASHBOARD] 📦 Usando dados padrão (documento não existe)');
           setStats({
             level: 1,
             experience: 0,
@@ -73,83 +80,108 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ onClose }) => {
             streams_created: 0
           });
         }
-      } else if (statsData) {
-        console.log('[DASHBOARD] ✅ Stats carregadas:', statsData);
-        setStats(statsData);
+      } catch (statsError) {
+        console.warn('[DASHBOARD] ⚠️ Erro ao buscar stats:', statsError);
+        setStats({
+          level: 1,
+          experience: 0,
+          total_playtime: 0,
+          games_played: 0,
+          multiplayer_sessions: 0,
+          streams_created: 0
+        });
       }
 
-      // Buscar conquistas desbloqueadas
-      const { data: achievementsData, error: achError } = await supabase
-        .from('user_achievements')
-        .select(`
-          unlocked_at,
-          achievement_id,
-          achievements (
-            id,
-            key,
-            title,
-            description,
-            icon,
-            xp_reward,
-            rarity
-          )
-        `)
-        .eq('user_id', user.id)
-        .order('unlocked_at', { ascending: false })
-        .limit(6);
-
-      if (achError) {
-        console.warn('[DASHBOARD] ⚠️ Tabela achievements não existe ou erro:', achError.message);
-        // FALLBACK: Array vazio se tabela não existir
-        if (achError.code === 'PGRST116' || achError.message.includes('relation') || achError.message.includes('does not exist')) {
-          console.log('[DASHBOARD] 📦 Conquistas vazias (migration não aplicada)');
+      // Buscar conquistas desbloqueadas do Firestore
+      try {
+        const achievementsQuery = query(
+          collection(db, 'user_achievements'),
+          where('userId', '==', user.id),
+          orderBy('unlockedAt', 'desc'),
+          limit(6)
+        );
+        
+        const achievementsSnapshot = await getDocs(achievementsQuery);
+        
+        if (!achievementsSnapshot.empty) {
+          const achievementsList: Achievement[] = [];
+          
+          for (const docSnap of achievementsSnapshot.docs) {
+            const data = docSnap.data();
+            // Buscar detalhes da conquista
+            try {
+              const achievementDoc = await getDoc(doc(db, 'achievements', data.achievementId));
+              if (achievementDoc.exists()) {
+                const achData = achievementDoc.data();
+                achievementsList.push({
+                  id: achievementDoc.id,
+                  key: achData.key || '',
+                  title: achData.title || '',
+                  description: achData.description || '',
+                  icon: achData.icon || '🏆',
+                  xp_reward: achData.xpReward || 0,
+                  rarity: achData.rarity || 'common',
+                  unlocked_at: data.unlockedAt?.toDate?.()?.toISOString() || new Date().toISOString()
+                });
+              }
+            } catch (err) {
+              console.warn('Erro ao buscar detalhes da conquista:', err);
+            }
+          }
+          
+          console.log('[DASHBOARD] ✅ Conquistas carregadas:', achievementsList.length);
+          setAchievements(achievementsList);
+        } else {
+          console.log('[DASHBOARD] 📦 Nenhuma conquista encontrada');
           setAchievements([]);
         }
-      } else if (achievementsData) {
-        const formatted = achievementsData
-          .filter((item: any) => item.achievements)
-          .map((item: any) => ({
-            ...item.achievements,
-            unlocked_at: item.unlocked_at
-          }));
-        console.log('[DASHBOARD] ✅ Conquistas carregadas:', formatted.length);
-        setAchievements(formatted);
+      } catch (achError) {
+        console.warn('[DASHBOARD] ⚠️ Erro ao buscar conquistas:', achError);
+        setAchievements([]);
       }
 
-      // Buscar jogos recentes
-      const { data: historyData, error: histError } = await supabase
-        .from('play_history')
-        .select(`
-          playtime,
-          last_played,
-          times_played,
-          game_id,
-          games (
-            title
-          )
-        `)
-        .eq('user_id', user.id)
-        .order('last_played', { ascending: false })
-        .limit(5);
-
-      if (histError) {
-        console.warn('[DASHBOARD] ⚠️ Tabela play_history não existe ou erro:', histError.message);
-        // FALLBACK: Array vazio se tabela não existir
-        if (histError.code === 'PGRST116' || histError.message.includes('relation') || histError.message.includes('does not exist')) {
-          console.log('[DASHBOARD] 📦 Histórico vazio (migration não aplicada)');
+      // Buscar jogos recentes do Firestore
+      try {
+        const historyQuery = query(
+          collection(db, 'play_history'),
+          where('userId', '==', user.id),
+          orderBy('lastPlayed', 'desc'),
+          limit(5)
+        );
+        
+        const historySnapshot = await getDocs(historyQuery);
+        
+        if (!historySnapshot.empty) {
+          const gamesList: RecentGame[] = [];
+          
+          for (const docSnap of historySnapshot.docs) {
+            const data = docSnap.data();
+            // Buscar detalhes do jogo
+            try {
+              const gameDoc = await getDoc(doc(db, 'games', data.gameId));
+              if (gameDoc.exists()) {
+                const gameData = gameDoc.data();
+                gamesList.push({
+                  game_title: gameData.title || 'Unknown Game',
+                  last_played: data.lastPlayed?.toDate?.()?.toISOString() || new Date().toISOString(),
+                  playtime: data.playtime || 0,
+                  times_played: data.timesPlayed || 1
+                });
+              }
+            } catch (err) {
+              console.warn('Erro ao buscar detalhes do jogo:', err);
+            }
+          }
+          
+          console.log('[DASHBOARD] ✅ Histórico carregado:', gamesList.length);
+          setRecentGames(gamesList);
+        } else {
+          console.log('[DASHBOARD] 📦 Nenhum histórico encontrado');
           setRecentGames([]);
         }
-      } else if (historyData) {
-        const formatted = historyData
-          .filter((item: any) => item.games)
-          .map((item: any) => ({
-            game_title: item.games?.title || 'Unknown Game',
-            last_played: item.last_played,
-            playtime: item.playtime,
-            times_played: item.times_played
-          }));
-        console.log('[DASHBOARD] ✅ Histórico carregado:', formatted.length);
-        setRecentGames(formatted);
+      } catch (histError) {
+        console.warn('[DASHBOARD] ⚠️ Erro ao buscar histórico:', histError);
+        setRecentGames([]);
       }
 
     } catch (error) {
@@ -243,7 +275,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ onClose }) => {
           </button>
         </div>
 
-        {/* Alerta: Migration não aplicada */}
+        {/* Alerta: Dados ainda não configurados */}
         {isMockData && (
           <div className="bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border-2 border-yellow-500/30 rounded-xl p-6 mb-6">
             <div className="flex items-start gap-4">
@@ -252,20 +284,18 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ onClose }) => {
               </div>
               <div className="flex-1">
                 <h3 className="text-xl font-bold text-yellow-400 mb-2">
-                  ⚠️ Sistema de XP e Conquistas Desativado
+                  ℹ️ Sistema de XP e Conquistas
                 </h3>
                 <p className="text-yellow-100/90 mb-3">
-                  As tabelas do banco de dados ainda não foram criadas. Para ativar o sistema completo de XP, conquistas, histórico e estatísticas:
+                  As coleções do Firestore ainda não possuem dados. Para ativar o sistema completo de XP, conquistas e histórico:
                 </p>
-                <ol className="text-yellow-100/80 space-y-2 text-sm mb-4 ml-4 list-decimal">
-                  <li>Abra o <strong>Supabase Dashboard</strong>: <code className="bg-black/30 px-2 py-1 rounded">https://ffmyoutiutemmrmvxzig.supabase.co</code></li>
-                  <li>Vá em <strong>SQL Editor</strong> (menu lateral esquerdo)</li>
-                  <li>Clique em <strong>+ New Query</strong></li>
-                  <li>Cole todo o conteúdo do arquivo: <code className="bg-black/30 px-2 py-1 rounded">/supabase/migrations/20251009110000_add_user_features.sql</code></li>
-                  <li>Clique em <strong>RUN</strong> (botão verde)</li>
-                </ol>
+                <ul className="text-yellow-100/80 space-y-2 text-sm mb-4 ml-4 list-disc">
+                  <li>Continue jogando para acumular estatísticas automaticamente</li>
+                  <li>Dados serão salvos no Firestore conforme você joga</li>
+                  <li>Conquistas e XP serão desbloqueados ao completar desafios</li>
+                </ul>
                 <p className="text-yellow-100/70 text-xs">
-                  📄 Veja instruções detalhadas em <strong>ERRO_SQL_SUPABASE.md</strong>
+                  � Sistema de gamificação está ativo e salvando seus dados no Firebase!
                 </p>
               </div>
             </div>

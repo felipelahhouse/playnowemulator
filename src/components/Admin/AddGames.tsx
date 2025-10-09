@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { supabase } from '../../contexts/AuthContext';
+import { db } from '../../lib/firebase';
+import { collection, addDoc, getDocs, query, where, serverTimestamp } from 'firebase/firestore';
 
 const games = [
   {
     title: 'Aladdin',
     description: 'Join Aladdin in this action-packed platformer based on the Disney movie. Run, jump, and swing through Agrabah!',
-    image_url: '/aladdinsnes.jpg',
+  image_url: '/covers/aladdin-snes.jpg',
     rom_url: '/roms/Aladdin (U) [!].smc',
     platform: 'SNES',
     genre: 'Platform',
@@ -16,7 +17,7 @@ const games = [
   {
     title: 'Battletoads & Double Dragon',
     description: 'The ultimate crossover! Team up with the Battletoads and Double Dragon to defeat the Dark Queen.',
-    image_url: '/BattleToadsDoubleDragon.jpg',
+  image_url: '/covers/battletoads-double-dragon.jpg',
     rom_url: '/roms/Battletoads & Double Dragon - The Ultimate Team (U) [!].smc',
     platform: 'SNES',
     genre: 'Action',
@@ -27,7 +28,7 @@ const games = [
   {
     title: 'Battletoads in Battlemaniacs',
     description: 'The Battletoads are back! Fight through intense levels with crazy attacks and challenging gameplay.',
-    image_url: '/Battletoads_in_Battlemaniacs.png',
+  image_url: '/covers/battletoads-in-battlemaniacs.png',
     rom_url: '/roms/Battletoads in Battlemaniacs (U) [!].smc',
     platform: 'SNES',
     genre: 'Action',
@@ -38,7 +39,7 @@ const games = [
   {
     title: 'Castlevania: Dracula X',
     description: 'Battle Dracula in this gothic horror action platformer. Master the whip and save the land!',
-    image_url: '/Castlevania_Dracula_X_cover_art.png',
+  image_url: '/covers/castlevania-dracula-x.png',
     rom_url: '/roms/Castlevania - Dracula X (U) [!].smc',
     platform: 'SNES',
     genre: 'Action',
@@ -49,7 +50,7 @@ const games = [
   {
     title: 'Dragon Ball Z: Super Butouden 2',
     description: 'Epic DBZ fighting game with your favorite characters. Master special moves and become the strongest!',
-    image_url: '/SNES_Dragon_Ball_Z_-_Super_Butōden_2_cover_art.jpg',
+  image_url: '/covers/dragon-ball-z-super-butoden-2.jpg',
     rom_url: '/roms/Dragon Ball Z - Super Butouden 2 (J) (V1.1).smc',
     platform: 'SNES',
     genre: 'Fighting',
@@ -60,7 +61,7 @@ const games = [
   {
     title: 'Fatal Fury 2',
     description: 'Classic fighting game with diverse characters and special moves. Battle to become the champion!',
-    image_url: '/Fatal Fury 2 .jpg',
+  image_url: '/covers/fatal-fury-2.jpg',
     rom_url: '/roms/Fatal Fury 2 (E) [!].smc',
     platform: 'SNES',
     genre: 'Fighting',
@@ -71,7 +72,7 @@ const games = [
   {
     title: 'Fatal Fury Special',
     description: 'Enhanced version of Fatal Fury with more characters and improved gameplay.',
-    image_url: '/Fatal Fury Special (E) (61959).jpg',
+  image_url: '/covers/fatal-fury-special.jpg',
     rom_url: '/roms/Fatal Fury Special (E) (61959).smc',
     platform: 'SNES',
     genre: 'Fighting',
@@ -82,7 +83,7 @@ const games = [
   {
     title: 'Goof Troop',
     description: 'Join Goofy and Max in this fun puzzle-adventure game. Teamwork is the key to success!',
-    image_url: '/Goof Troop (E).jpg',
+  image_url: '/covers/goof-troop.jpg',
     rom_url: '/roms/Goof Troop (E).smc',
     platform: 'SNES',
     genre: 'Puzzle',
@@ -93,7 +94,7 @@ const games = [
   {
     title: 'International Superstar Soccer Deluxe',
     description: 'The ultimate soccer experience on SNES. Play with international teams in fast-paced matches!',
-    image_url: '/International-Superstar-Soccer-Deluxe-box-art.webp',
+  image_url: '/covers/international-superstar-soccer-deluxe.webp',
     rom_url: '/roms/International Superstar Soccer Deluxe (U).smc',
     platform: 'SNES',
     genre: 'Sports',
@@ -104,7 +105,7 @@ const games = [
   {
     title: 'Joe & Mac 2: Lost in the Tropics',
     description: 'Prehistoric adventure platformer with colorful graphics and fun gameplay!',
-    image_url: '/Joe & Mac 2 - Lost in the Tropics (U).jpg',
+  image_url: '/covers/joe-and-mac-2.jpg',
     rom_url: '/roms/Joe & Mac 2 - Lost in the Tropics (U).smc',
     platform: 'SNES',
     genre: 'Platform',
@@ -115,7 +116,7 @@ const games = [
   {
     title: 'Killer Instinct',
     description: 'Revolutionary fighting game with amazing combo system and stunning graphics!',
-    image_url: '/Killer Instinct (E) [!].jpg',
+  image_url: '/covers/killer-instinct.jpg',
     rom_url: '/roms/Killer Instinct (E) [!].smc',
     platform: 'SNES',
     genre: 'Fighting',
@@ -126,7 +127,7 @@ const games = [
   {
     title: 'The Magical Quest Starring Mickey Mouse',
     description: 'Join Mickey in a magical adventure with costume transformations and fun platforming!',
-    image_url: '/The_Magical_Quest_starring_Mickey_Mouse_%28NA%29.webp',
+  image_url: '/covers/magical-quest-mickey-mouse.webp',
     rom_url: '/roms/Magical Quest Starring Mickey Mouse, The (U) [!].smc',
     platform: 'SNES',
     genre: 'Platform',
@@ -148,7 +149,7 @@ const games = [
   {
     title: 'Mickey to Donald: Magical Adventure 3',
     description: 'Mickey and Donald team up in this Japanese platformer adventure!',
-    image_url: '/Mickey to Donald - Magical Adventure 3 (J) [t2].jpg',
+  image_url: '/covers/mickey-to-donald-3.jpg',
     rom_url: '/roms/Mickey to Donald - Magical Adventure 3 (J) [t2].smc',
     platform: 'SNES',
     genre: 'Platform',
@@ -159,7 +160,7 @@ const games = [
   {
     title: 'Mighty Morphin Power Rangers: The Movie',
     description: 'Fight as the Power Rangers in this action-packed beat em up based on the movie!',
-    image_url: '/Mighty Morphin Power Rangers - The Movie (U).jpg',
+  image_url: '/covers/power-rangers-movie.jpg',
     rom_url: '/roms/Mighty Morphin Power Rangers - The Movie (U).smc',
     platform: 'SNES',
     genre: 'Action',
@@ -170,7 +171,7 @@ const games = [
   {
     title: 'Mighty Morphin Power Rangers',
     description: 'Morph into action as the Power Rangers and save the world from evil!',
-    image_url: '/Mighty Morphin Power Rangers (U).jpg',
+  image_url: '/covers/power-rangers.jpg',
     rom_url: '/roms/Mighty Morphin Power Rangers (U).smc',
     platform: 'SNES',
     genre: 'Action',
@@ -214,7 +215,7 @@ const games = [
   {
     title: 'Street Fighter Alpha 2',
     description: 'Classic Street Fighter action with Alpha counters and custom combos!',
-    image_url: '/Street Fighter Alpha 2 (U) [!].jpg',
+  image_url: '/covers/street-fighter-alpha-2.jpg',
     rom_url: '/roms/Street Fighter Alpha 2 (U) [!].smc',
     platform: 'SNES',
     genre: 'Fighting',
@@ -225,7 +226,7 @@ const games = [
   {
     title: 'Super Double Dragon',
     description: 'The Lee brothers return! Beat em up action with new moves and co-op gameplay.',
-    image_url: '/super double dragon.jpg',
+  image_url: '/covers/super-double-dragon.jpg',
     rom_url: '/roms/Super Double Dragon (U).smc',
     platform: 'SNES',
     genre: 'Action',
@@ -236,7 +237,7 @@ const games = [
   {
     title: 'Super Mario Kart',
     description: 'The racing game that started it all! Race as Mario characters with items and power-ups.',
-    image_url: '/Super Mario Kart .webp',
+  image_url: '/covers/super-mario-kart.webp',
     rom_url: '/roms/Super Mario Kart (E) [!].smc',
     platform: 'SNES',
     genre: 'Racing',
@@ -247,7 +248,7 @@ const games = [
   {
     title: 'Super Mario World',
     description: 'The definitive Mario platformer! Explore Dinosaur Land with Yoshi in this timeless classic.',
-    image_url: '/Super_Mario_World_Coverart.png',
+  image_url: '/covers/super-mario-world.png',
     rom_url: '/roms/Super Mario World (U) [!].smc',
     platform: 'SNES',
     genre: 'Platform',
@@ -258,7 +259,7 @@ const games = [
   {
     title: 'Super Star Wars: The Empire Strikes Back',
     description: 'Experience the epic Star Wars saga in this action-packed platformer!',
-    image_url: '/Super Star Wars - The Empire Strikes Back.jpg',
+  image_url: '/covers/super-star-wars-empire-strikes-back.jpg',
     rom_url: '/roms/Super Star Wars - The Empire Strikes Back (U) (V1.1) [!].smc',
     platform: 'SNES',
     genre: 'Action',
@@ -302,7 +303,7 @@ const games = [
   {
     title: 'Top Gear',
     description: 'High-speed racing action! Compete in international races and upgrade your car.',
-    image_url: '/Top_Gear_cover_art.jpg',
+  image_url: '/covers/top-gear.jpg',
     rom_url: '/roms/Top Gear (U) [!].smc',
     platform: 'SNES',
     genre: 'Racing',
@@ -313,7 +314,7 @@ const games = [
   {
     title: 'Donkey Kong Country',
     description: 'Revolutionary platformer with stunning pre-rendered graphics! Swing through the jungle with DK and Diddy.',
-    image_url: '/Donkey_Kong_Country_SNES_cover.png',
+  image_url: '/covers/donkey-kong-country.png',
     rom_url: '/roms/Donkey Kong Country (U) (V1.2) [!].smc',
     platform: 'SNES',
     genre: 'Platform',
@@ -332,18 +333,10 @@ const AddGames: React.FC = () => {
   // Verificar quantos jogos já existem
   const checkGames = async () => {
     try {
-      const { count, error } = await supabase
-        .from('games')
-        .select('*', { count: 'exact', head: true });
-
-      if (error) {
-        console.error('Erro ao contar jogos:', error);
-        setGameCount(0);
-      } else {
-        setGameCount(count || 0);
-      }
+      const gamesSnapshot = await getDocs(collection(db, 'games'));
+      setGameCount(gamesSnapshot.size);
     } catch (error) {
-      console.error('Erro:', error);
+      console.error('Erro ao contar jogos:', error);
       setGameCount(0);
     }
   };
@@ -362,30 +355,28 @@ const AddGames: React.FC = () => {
       const game = games[i];
       try {
         // Verifica se já existe
-        const { data: existing } = await supabase
-          .from('games')
-          .select('id')
-          .eq('title', game.title)
-          .maybeSingle();
+        const existingQuery = query(
+          collection(db, 'games'),
+          where('title', '==', game.title)
+        );
+        const existingSnapshot = await getDocs(existingQuery);
 
-        if (existing) {
+        if (!existingSnapshot.empty) {
           setStatus(`⚠️  ${game.title} já existe, pulando...`);
         } else {
-          // Adiciona o jogo
-          const { error } = await supabase
-            .from('games')
-            .insert([game]);
-
-          if (error) {
-            setStatus(`❌ Erro ao adicionar ${game.title}: ${error.message}`);
-          } else {
-            setStatus(`✅ ${game.title} adicionado!`);
-          }
+          // Adiciona o jogo ao Firestore
+          await addDoc(collection(db, 'games'), {
+            ...game,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          });
+          setStatus(`✅ ${game.title} adicionado!`);
         }
 
         setProgress(Math.round(((i + 1) / games.length) * 100));
       } catch (error: any) {
         setStatus(`❌ Erro: ${error.message}`);
+        console.error(`Erro ao adicionar ${game.title}:`, error);
       }
 
       // Pequeno delay para não sobrecarregar

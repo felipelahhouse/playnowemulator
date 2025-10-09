@@ -1,0 +1,51 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Jogos - qualquer um pode ler, apenas autenticados podem escrever
+    match /games/{gameId} {
+      allow read: if true;
+      allow create, update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+    
+    // Usuários - qualquer autenticado pode ler, criar seu próprio usuário
+    match /users/{userId} {
+      allow read: if true;
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update, delete: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Sessões de jogo multiplayer e subcoleções
+    match /game_sessions/{sessionId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null;
+      
+      // Subcoleções (players, presence, chat, game_inputs, game_sync)
+      match /{subcollection}/{document=**} {
+        allow read: if true;
+        allow write: if request.auth != null;
+      }
+    }
+    
+    // Players nas sessões
+    match /session_players/{playerId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    
+    // Streams ao vivo e subcoleções
+    match /live_streams/{streamId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null;
+      
+      // Subcoleções (chat, likes, viewers, frames)
+      match /{subcollection}/{document=**} {
+        allow read: if true;
+        allow write: if request.auth != null;
+      }
+    }
+  }
+}
