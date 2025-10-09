@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { DoorOpen, Download, Info, Keyboard, Loader2, RotateCcw, X } from 'lucide-react';
+import { DoorOpen, Download, Keyboard, Loader2, RotateCcw, X } from 'lucide-react';
 import JSZip from 'jszip';
 
 interface GamePlayerProps {
@@ -286,7 +286,7 @@ const GamePlayer: React.FC<GamePlayerProps> = ({ gameTitle, romPath, onClose }) 
               )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">
                 <div className="flex items-center gap-2 text-cyan-200 font-semibold text-sm uppercase tracking-wide mb-2">
                   <Keyboard className="h-4 w-4" />
@@ -298,19 +298,6 @@ const GamePlayer: React.FC<GamePlayerProps> = ({ gameTitle, romPath, onClose }) 
                   <li><span className="text-cyan-100 font-semibold">Z / X / C / D</span> · Botões A · B · Y · X</li>
                   <li><span className="text-cyan-100 font-semibold">Q / W</span> · L / R</li>
                   <li><span className="text-cyan-100 font-semibold">Enter</span> · Menu do emulador</li>
-                </ul>
-              </div>
-
-              <div className="rounded-2xl border border-purple-500/20 bg-purple-500/10 p-4">
-                <div className="flex items-center gap-2 text-purple-200 font-semibold text-sm uppercase tracking-wide mb-2">
-                  <Info className="h-4 w-4" />
-                  Emulador SNES Real
-                </div>
-                <ul className="space-y-2 text-xs text-purple-50/80 font-medium">
-                  <li>🎮 Emulação completa de SNES com core SNES9x</li>
-                  <li>💾 Suporte a save states (Enter no menu)</li>
-                  <li>🔊 Áudio e vídeo sincronizados</li>
-                  <li>⚡ Jogabilidade em 60 FPS</li>
                 </ul>
               </div>
 

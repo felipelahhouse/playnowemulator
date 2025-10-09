@@ -158,22 +158,81 @@ const NetPlaySession: React.FC<NetPlaySessionProps> = ({
       const cleanup = async () => {
         try {
           await channel.untrack();
+          
+          console.log(`[🚪 SAINDO] Jogador ${user?.username} saindo da sessão ${sessionId}`);
+          console.log(`[🚪 SAINDO] É host? ${isHost}`);
+          
+          // Se for o host, deletar a sala inteira
+          if (isHost) {
+            console.log('[🗑️ HOST SAINDO] Deletando sala e todos os jogadores...');
+            
+            // Deletar todos os jogadores da sala primeiro
+            const { error: playersDeleteError } = await supabase
+              .from('session_players')
+              .delete()
+              .eq('session_id', sessionId);
+            
+            if (playersDeleteError) {
+              console.error('[❌] Erro ao deletar jogadores:', playersDeleteError);
+            } else {
+              console.log('[✓] Jogadores removidos da sala');
+            }
+            
+            // Deletar a sala
+            const { error: sessionDeleteError } = await supabase
+              .from('game_sessions')
+              .delete()
+              .eq('id', sessionId);
+            
+            if (sessionDeleteError) {
+              console.error('[❌] Erro ao deletar sala:', sessionDeleteError);
+            } else {
+              console.log('[✓] Sala deletada com sucesso!');
+            }
+            
+            return; // Sai aqui pois já deletou tudo
+          }
+          
+          // Se não for host, apenas remover este jogador
           await supabase
             .from('session_players')
             .delete()
             .eq('session_id', sessionId)
             .eq('user_id', user?.id);
           
-          // Atualizar contagem de jogadores
-          const { data: remainingPlayers } = await supabase
+          console.log(`[✓] Jogador ${user?.username} removido da sala`);
+          
+          // Verificar quantos jogadores restaram
+          const { count: playerCount } = await supabase
             .from('session_players')
             .select('*', { count: 'exact' })
             .eq('session_id', sessionId);
           
-          await supabase
-            .from('game_sessions')
-            .update({ current_players: remainingPlayers?.length || 0 })
-            .eq('id', sessionId);
+          console.log(`[📊] Jogadores restantes: ${playerCount || 0}`);
+          
+          // Se não sobrou ninguém, deletar a sala
+          if (!playerCount || playerCount === 0) {
+            console.log('[🗑️ SALA VAZIA] Não há mais jogadores, deletando sala...');
+            
+            const { error: sessionDeleteError } = await supabase
+              .from('game_sessions')
+              .delete()
+              .eq('id', sessionId);
+            
+            if (sessionDeleteError) {
+              console.error('[❌] Erro ao deletar sala vazia:', sessionDeleteError);
+            } else {
+              console.log('[✓] Sala vazia deletada com sucesso!');
+            }
+          } else {
+            // Atualizar contagem de jogadores
+            await supabase
+              .from('game_sessions')
+              .update({ current_players: playerCount })
+              .eq('id', sessionId);
+            
+            console.log(`[✓] Contagem de jogadores atualizada: ${playerCount}`);
+          }
         } catch (error) {
           console.error('Error cleaning up session:', error);
         }

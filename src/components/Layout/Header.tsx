@@ -3,12 +3,14 @@ import { useAuth, supabase } from '../../contexts/AuthContext';
 import { Gamepad as GamepadIcon, User, Settings, LogOut, Trophy, Users, Menu, X } from 'lucide-react';
 import UserProfile from '../User/UserProfile';
 import SettingsModal from '../Settings/SettingsModal';
+import ProfileSettings from '../User/ProfileSettings';
 
 const Header: React.FC = () => {
   const { user, signOut } = useAuth();
   const [showProfile, setShowProfile] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showProfileSettings, setShowProfileSettings] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [onlineCount, setOnlineCount] = useState(0);
 
@@ -141,7 +143,7 @@ const Header: React.FC = () => {
                         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-400 via-purple-400 to-pink-400" />
                         <div className="p-2 mt-2">
                           {[
-                            { icon: User, label: 'Profile', color: 'cyan', action: () => setShowProfile(false) },
+                            { icon: User, label: 'Editar Perfil', color: 'cyan', action: () => { setShowProfile(false); setShowProfileSettings(true); } },
                             { icon: Trophy, label: 'Achievements', color: 'purple', action: () => setShowProfile(false) },
                             { icon: Users, label: 'Friends', color: 'pink', action: () => setShowProfile(false) },
                             { icon: Settings, label: 'Settings', color: 'green', action: () => { setShowProfile(false); setShowSettings(true); } }
@@ -223,6 +225,12 @@ const Header: React.FC = () => {
         <SettingsModal
           isOpen={showSettings}
           onClose={() => setShowSettings(false)}
+        />
+      )}
+
+      {showProfileSettings && (
+        <ProfileSettings
+          onClose={() => setShowProfileSettings(false)}
         />
       )}
     </>
