@@ -154,31 +154,40 @@ function AppContent() {
             // Buscar dados da sessão para abrir o jogo
             supabase
               .from('game_sessions')
-              .select(`
-                *,
-                game:games!game_sessions_game_id_fkey(title, rom_url)
-              `)
+              .select('*')
               .eq('id', sessionId)
               .single()
-              .then(({ data, error }) => {
-                if (error) {
+              .then(async ({ data, error }) => {
+                if (error || !data) {
                   console.error('❌ Erro ao buscar sessão:', error);
                   alert('Erro ao entrar na sala. Tente novamente.');
                   return;
                 }
-                
-                if (data && data.game) {
+
+                try {
+                  const { data: game, error: gameError } = await supabase
+                    .from('games')
+                    .select('title, rom_url')
+                    .eq('id', data.game_id)
+                    .single();
+
+                  if (gameError || !game) {
+                    console.error('❌ Erro ao buscar jogo:', gameError);
+                    alert('Erro ao carregar informações do jogo.');
+                    return;
+                  }
+
                   console.log('✅ Sessão encontrada:', data);
                   setNetPlaySession({
                     sessionId: data.id,
                     gameId: data.game_id,
-                    gameTitle: data.game.title,
-                    romPath: data.game.rom_url,
-                    isHost: data.host_id === user?.id
+                    gameTitle: game.title,
+                    romPath: game.rom_url,
+                    isHost: data.host_user_id === user?.id
                   });
-                } else {
-                  console.error('❌ Dados da sessão incompletos');
-                  alert('Erro: Dados da sala incompletos.');
+                } catch (fetchError) {
+                  console.error('❌ Erro geral ao carregar sessão:', fetchError);
+                  alert('Erro ao carregar dados da sala.');
                 }
               });
           }}

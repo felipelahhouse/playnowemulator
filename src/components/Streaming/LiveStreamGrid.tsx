@@ -5,7 +5,7 @@ import SpectatorView from './SpectatorView';
 
 interface Stream {
   id: string;
-  user_id: string;
+  streamer_id: string;
   game_id: string;
   title: string;
   is_live: boolean;
@@ -13,7 +13,7 @@ interface Stream {
   started_at: string;
   streamer_username: string;
   game_title: string;
-  game_cover?: string;
+  game_cover?: string | null;
 }
 
 const LiveStreamGrid: React.FC = () => {
@@ -35,7 +35,7 @@ const LiveStreamGrid: React.FC = () => {
         {
           event: '*',
           schema: 'public',
-          table: 'streams',
+          table: 'live_streams',
           filter: 'is_live=eq.true'
         },
         () => {
@@ -53,28 +53,71 @@ const LiveStreamGrid: React.FC = () => {
   const loadStreams = async () => {
     try {
       const { data, error } = await supabase
-        .from('streams')
-        .select(`
-          *,
-          users:user_id (username),
-          games:game_id (title, cover_url)
-        `)
+        .from('live_streams')
+        .select('*')
         .eq('is_live', true)
-        .order('viewer_count', { ascending: false });
+        .order('started_at', { ascending: false });
 
       if (error) throw error;
 
-      const formattedStreams: Stream[] = (data || []).map((s: any) => ({
-        id: s.id,
-        user_id: s.user_id,
-        game_id: s.game_id,
-        title: s.title,
-        is_live: s.is_live,
-        viewer_count: s.viewer_count || 0,
-        started_at: s.started_at,
-        streamer_username: s.users?.username || 'Unknown',
-        game_title: s.games?.title || 'Unknown Game',
-        game_cover: s.games?.cover_url
+      const rawStreams = data || [];
+      if (rawStreams.length === 0) {
+        setStreams([]);
+        return;
+      }
+
+      const streamerIds = Array.from(
+        new Set(rawStreams.map((stream) => stream.streamer_id).filter(Boolean))
+      );
+      const gameIds = Array.from(
+        new Set(rawStreams.map((stream) => stream.game_id).filter(Boolean))
+      );
+
+      const [{ data: users, error: usersError }, { data: games, error: gamesError }] = await Promise.all([
+        streamerIds.length
+          ? supabase
+              .from('users')
+              .select('id, username')
+              .in('id', streamerIds)
+          : Promise.resolve({ data: [], error: null }),
+        gameIds.length
+          ? supabase
+              .from('games')
+              .select('id, title, image_url, thumbnail_url')
+              .in('id', gameIds)
+          : Promise.resolve({ data: [], error: null })
+      ]);
+
+      if (usersError) throw usersError;
+      if (gamesError) throw gamesError;
+
+      const userMap = (users || []).reduce<Record<string, string>>((acc, u: any) => {
+        acc[u.id] = u.username;
+        return acc;
+      }, {} as Record<string, string>);
+
+      const gameMap = (games || []).reduce<Record<string, { title: string; cover?: string | null }>>(
+        (acc, g: any) => {
+          acc[g.id] = {
+            title: g.title,
+            cover: g.thumbnail_url ?? g.image_url ?? null
+          };
+          return acc;
+        },
+        {} as Record<string, { title: string; cover?: string | null }>
+      );
+
+      const formattedStreams: Stream[] = rawStreams.map((stream: any) => ({
+        id: stream.id,
+        streamer_id: stream.streamer_id,
+        game_id: stream.game_id,
+        title: stream.title,
+        is_live: stream.is_live,
+        viewer_count: stream.viewer_count ?? 0,
+        started_at: stream.started_at,
+        streamer_username: userMap[stream.streamer_id] || 'Unknown',
+        game_title: gameMap[stream.game_id]?.title || 'Unknown Game',
+        game_cover: gameMap[stream.game_id]?.cover || null
       }));
 
       setStreams(formattedStreams);

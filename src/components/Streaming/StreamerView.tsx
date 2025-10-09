@@ -41,7 +41,7 @@ const StreamerView: React.FC<StreamerViewProps> = ({
   const { user } = useAuth();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const channelRef = useRef<any>(null);
-  const streamIdRef = useRef<string>(`stream-${Date.now()}`);
+  const streamIdRef = useRef<string>(crypto.randomUUID());
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
 
@@ -189,11 +189,12 @@ const StreamerView: React.FC<StreamerViewProps> = ({
 
     // Criar registro de stream no banco
     const createStreamRecord = async () => {
-      await supabase.from('streams').insert({
+      await supabase.from('live_streams').insert({
         id: streamIdRef.current,
-        user_id: user?.id,
+        streamer_id: user?.id,
         game_id: gameId,
         title: streamTitle || 'Untitled Stream',
+        description: '',
         is_live: true,
         viewer_count: 0,
         started_at: new Date().toISOString()
@@ -310,7 +311,7 @@ const StreamerView: React.FC<StreamerViewProps> = ({
 
     // Atualizar registro no banco
     await supabase
-      .from('streams')
+      .from('live_streams')
       .update({
         is_live: false,
         ended_at: new Date().toISOString()

@@ -43,8 +43,10 @@ const SpectatorView: React.FC<SpectatorViewProps> = ({
     channel
       .on('presence', { event: 'sync' }, () => {
         const state = channel.presenceState();
-        const count = Object.keys(state).length;
-        setViewers(count);
+        const spectators = Object.values(state)
+          .flat()
+          .filter((entry: any) => entry?.role === 'spectator');
+        setViewers(spectators.length);
       })
       // Frame streaming
       .on('broadcast', { event: 'frame' }, (payload: any) => {
@@ -73,7 +75,7 @@ const SpectatorView: React.FC<SpectatorViewProps> = ({
     // Atualizar contagem de visualizações no banco
     const updateViews = async () => {
       await supabase
-        .from('streams')
+        .from('live_streams')
         .update({ viewer_count: viewers })
         .eq('id', streamId);
     };

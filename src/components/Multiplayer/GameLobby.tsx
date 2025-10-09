@@ -14,7 +14,7 @@ const GameLobby: React.FC = () => {
       {
         id: '1',
         game_id: '1',
-        host_id: 'user1',
+  host_user_id: 'user1',
         players: ['user1', 'user2'],
         max_players: 4,
         is_private: false,
@@ -24,7 +24,7 @@ const GameLobby: React.FC = () => {
       {
         id: '2',
         game_id: '3',
-        host_id: 'user3',
+  host_user_id: 'user3',
         players: ['user3'],
         max_players: 2,
         is_private: false,
@@ -34,7 +34,7 @@ const GameLobby: React.FC = () => {
       {
         id: '3',
         game_id: '2',
-        host_id: 'user4',
+  host_user_id: 'user4',
         players: ['user4', 'user5', 'user6'],
         max_players: 4,
         is_private: true,
