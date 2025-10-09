@@ -40,11 +40,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     // GUARD ABSOLUTO - se já inicializou, NÃO faz nada
     if (initializedRef.current) {
-      console.log('✅ Auth já inicializado, ignorando');
+      console.log('✅ Auth já inicializado, ignorando re-render');
       return;
     }
     
-    console.log('🔄 Inicializando auth pela primeira vez...');
+    console.log('🔄 Inicializando auth pela PRIMEIRA e ÚNICA vez...');
+    console.log('🔍 Timestamp:', new Date().toISOString());
     initializedRef.current = true;
 
     let mounted = true;
@@ -98,11 +99,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     return () => {
-      console.log('🧹 Cleanup auth');
+      console.log('🧹 Cleanup auth - componente desmontado');
+      console.log('⚠️  Se ver esta mensagem repetidamente = PROBLEMA DE LOOP');
       mounted = false;
       subscription.unsubscribe();
     };
-  }, []); // ARRAY VAZIO - NUNCA re-executa
+  }, []); // ARRAY VAZIO - NUNCA re-executa (só roda 1x na montagem)
 
   const signIn = async (email: string, password: string) => {
     try {
