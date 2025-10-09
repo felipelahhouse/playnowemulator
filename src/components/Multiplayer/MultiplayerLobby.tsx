@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 
 interface GameSession {
   id: string;
-  host_id: string;
+  host_user_id: string;
   game_id: string;
   session_name: string;
   is_public: boolean;
@@ -83,7 +83,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
       }
 
       const sessionsData = data || [];
-      const hostIds = Array.from(new Set(sessionsData.map((session) => session.host_id).filter(Boolean)));
+      const hostIds = Array.from(new Set(sessionsData.map((session) => session.host_user_id).filter(Boolean)));
       const gameIds = Array.from(new Set(sessionsData.map((session) => session.game_id).filter(Boolean)));
 
       let hostMap: Record<string, { username: string }> = {};
@@ -125,7 +125,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
 
       const enrichedSessions = sessionsData.map((session) => ({
         ...session,
-        host: hostMap[session.host_id],
+        host: hostMap[session.host_user_id],
         game: gamesMap[session.game_id]
       }));
 
@@ -187,7 +187,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
     try {
       console.log('📝 Criando sessão no banco...');
       const payload = {
-        host_id: user.id,
+        host_user_id: user.id,
         game_id: newSession.game_id,
         session_name: newSession.session_name.trim(),
         is_public: newSession.is_public,
@@ -386,7 +386,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {sessions.map((session) => {
                 const isFull = session.current_players >= session.max_players;
-                const isMySession = session.host_id === user?.id;
+                const isMySession = session.host_user_id === user?.id;
                 
                 return (
                   <div

@@ -25,7 +25,7 @@ export interface Game {
 export interface GameSession {
   id: string;
   game_id: string;
-  host_id: string;
+  host_user_id: string;
   players: string[];
   max_players: number;
   is_private: boolean;
