@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Radio, Eye, Heart, MessageCircle, X, Video, Mic, Settings } from 'lucide-react';
+import { Radio, Eye, Heart, MessageCircle, Video, Mic, Settings } from 'lucide-react';
 import { supabase } from '../../contexts/AuthContext';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -46,7 +46,7 @@ const StreamerView: React.FC<StreamerViewProps> = ({
   const mediaStreamRef = useRef<MediaStream | null>(null);
 
   const [viewers, setViewers] = useState(0);
-  const [likes, setLikes] = useState(0);
+  const [likes] = useState(0);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamTitle, setStreamTitle] = useState(initialTitle || (gameTitle ? `Playing ${gameTitle}` : ''));

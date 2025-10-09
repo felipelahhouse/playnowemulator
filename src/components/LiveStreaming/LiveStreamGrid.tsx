@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Eye, Play, Radio, Clock, Gamepad2 } from 'lucide-react';
+import { Eye, Play, Radio, Clock } from 'lucide-react';
 import { supabase } from '../../contexts/AuthContext';
-import StreamViewer from './StreamViewer';
 
 interface LiveStream {
   id: string;
@@ -27,7 +26,6 @@ interface LiveStreamGridProps {
 const LiveStreamGrid: React.FC<LiveStreamGridProps> = ({ onStreamClick }) => {
   const [streams, setStreams] = useState<LiveStream[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedStream, setSelectedStream] = useState<LiveStream | null>(null);
 
   useEffect(() => {
     fetchLiveStreams();

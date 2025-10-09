@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import type { User } from '../types';
+import type { User as SupabaseAuthUser, Session } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -36,6 +37,140 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const initializedRef = useRef(false);
+  const currentUserRef = useRef<User | null>(null);
+
+  const updateUserState = (value: User | null) => {
+    currentUserRef.current = value;
+    setUser(value);
+  };
+
+  const buildUser = (authUser: SupabaseAuthUser, profile?: any): User => {
+    const fallbackUsername = authUser.email?.split('@')[0] || 'Player';
+    const usernameFromMetadata = authUser.user_metadata?.username;
+    const now = new Date().toISOString();
+
+    return {
+      id: authUser.id,
+      email: authUser.email || '',
+      username: profile?.username || usernameFromMetadata || fallbackUsername,
+      avatar_url: profile?.avatar_url || authUser.user_metadata?.avatar_url,
+      is_online: profile?.is_online ?? true,
+      last_seen: profile?.last_seen || now,
+      created_at: profile?.created_at || authUser.created_at || now
+    };
+  };
+
+  const syncUserProfile = async (authUser: SupabaseAuthUser) => {
+    const fallbackUsername = authUser.email?.split('@')[0] || 'Player';
+    const baseUsername = (authUser.user_metadata?.username || fallbackUsername).trim();
+
+    const normalizeUsername = (value: string) => {
+      const sanitized = value
+        .toLowerCase()
+        .replace(/[^a-z0-9_]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 28);
+      return sanitized || `player-${Math.random().toString(36).slice(2, 8)}`;
+    };
+
+    try {
+      // Primeiro, verificar se o usuário já existe
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', authUser.id)
+        .single();
+
+      // Se já existe, só atualizar status online
+      if (existingUser) {
+        const { data, error } = await supabase
+          .from('users')
+          .update({
+            is_online: true,
+            last_seen: new Date().toISOString()
+          })
+          .eq('id', authUser.id)
+          .select()
+          .single();
+
+        if (error) {
+          console.error('❌ Erro ao atualizar status online:', error);
+          return existingUser;
+        }
+
+        console.log('✅ Status online atualizado');
+        return data || existingUser;
+      }
+
+      // Se não existe, criar novo perfil
+      let attempt = 0;
+      const maxAttempts = 5;
+      let usernameCandidate = normalizeUsername(baseUsername);
+
+      while (attempt < maxAttempts) {
+        const { data, error } = await supabase
+          .from('users')
+          .insert({
+            id: authUser.id,
+            email: authUser.email || '',
+            username: usernameCandidate,
+            avatar_url: authUser.user_metadata?.avatar_url || null,
+            is_online: true,
+            last_seen: new Date().toISOString()
+          })
+          .select()
+          .single();
+
+        if (!error) {
+          console.log('✅ Novo perfil criado:', data.username);
+          return data;
+        }
+
+        // 23505 = unique_violation (username já usado)
+        if (error.code === '23505' && error.message?.includes('username')) {
+          attempt += 1;
+          usernameCandidate = `${normalizeUsername(baseUsername)}-${Math.floor(Math.random() * 9999)}`;
+          console.log(`⚠️ Username já existe, tentando: ${usernameCandidate} (tentativa ${attempt}/${maxAttempts})`);
+          continue;
+        }
+
+        console.error('❌ Erro ao criar perfil do usuário:', error);
+        return null;
+      }
+
+      console.error('❌ Todas as tentativas de criar username falharam');
+      return null;
+    } catch (error) {
+      console.error('❌ Erro inesperado ao sincronizar perfil:', error);
+      return null;
+    }
+  };
+
+  const markUserOffline = async (userId: string) => {
+    try {
+      await supabase
+        .from('users')
+        .update({
+          is_online: false,
+          last_seen: new Date().toISOString()
+        })
+        .eq('id', userId);
+    } catch (error) {
+      console.error('⚠️  Falha ao marcar usuário offline:', error);
+    }
+  };
+
+  const handleSession = async (session: Session | null) => {
+    if (!session?.user) {
+      updateUserState(null);
+      setLoading(false);
+      return;
+    }
+
+    const profile = await syncUserProfile(session.user);
+    updateUserState(buildUser(session.user, profile));
+    setLoading(false);
+  };
 
   useEffect(() => {
     // GUARD ABSOLUTO - se já inicializou, NÃO faz nada
@@ -52,24 +187,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Verificar sessão inicial
     supabase.auth.getSession()
-      .then(({ data: { session } }) => {
+      .then(async ({ data: { session } }) => {
         if (!mounted) return;
-        
+
         console.log('📦 Sessão carregada:', session ? 'Logado' : 'Sem sessão');
-        
-        if (session?.user) {
-          setUser({
-            id: session.user.id,
-            email: session.user.email || '',
-            username: session.user.user_metadata?.username || session.user.email?.split('@')[0] || 'User',
-            avatar_url: session.user.user_metadata?.avatar_url,
-            is_online: true,
-            last_seen: new Date().toISOString(),
-            created_at: session.user.created_at || new Date().toISOString()
-          });
-        }
-        
-        setLoading(false);
+
+        await handleSession(session);
         console.log('✅ Loading finalizado');
       })
       .catch((error) => {
@@ -78,24 +201,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
     // Listener para mudanças de autenticação
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!mounted) return;
-      
+
       console.log('🔔 Auth state changed:', _event, session ? 'Logado' : 'Deslogado');
-      
-      if (session?.user) {
-        setUser({
-          id: session.user.id,
-          email: session.user.email || '',
-          username: session.user.user_metadata?.username || session.user.email?.split('@')[0] || 'User',
-          avatar_url: session.user.user_metadata?.avatar_url,
-          is_online: true,
-          last_seen: new Date().toISOString(),
-          created_at: session.user.created_at || new Date().toISOString()
-        });
-      } else {
-        setUser(null);
+
+      if (_event === 'SIGNED_OUT' && currentUserRef.current?.id) {
+        await markUserOffline(currentUserRef.current.id);
       }
+
+      await handleSession(session);
     });
 
     return () => {
@@ -136,6 +251,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('Erro ao fazer login');
       }
 
+      await syncUserProfile(data.user);
+
       // onAuthStateChange vai atualizar o user automaticamente
     } catch (error: any) {
       console.error('Sign in error:', error);
@@ -148,32 +265,71 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signUp = async (email: string, password: string, username: string) => {
     try {
       setLoading(true);
+      console.log('📝 Iniciando cadastro:', { email, username });
 
       // Verificar se as variáveis estão configuradas
       if (!supabaseUrl || !supabaseKey) {
         throw new Error('⚠️ Configuração incorreta. Entre em contato com o administrador.');
       }
 
+      // Validar inputs
+      if (!email || !password || !username) {
+        throw new Error('Preencha todos os campos');
+      }
+
+      if (password.length < 6) {
+        throw new Error('A senha deve ter pelo menos 6 caracteres');
+      }
+
       // Criar conta no Supabase Auth
+      console.log('🔐 Criando conta no Supabase Auth...');
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: {
-            username: username
-          }
+            username: username.trim()
+          },
+          emailRedirectTo: undefined // Desabilitar confirmação por email
         }
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Erro do Supabase Auth:', error);
+        
+        // Mensagens mais amigáveis
+        if (error.message.includes('already registered')) {
+          throw new Error('Este email já está cadastrado. Faça login.');
+        }
+        if (error.message.includes('invalid email')) {
+          throw new Error('Email inválido');
+        }
+        if (error.message.includes('password')) {
+          throw new Error('Senha muito fraca. Use pelo menos 6 caracteres.');
+        }
+        
+        throw error;
+      }
 
       if (!data.user) {
         throw new Error('Erro ao criar usuário');
       }
 
+      console.log('✅ Conta criada no Auth, sincronizando perfil...');
+
+      // Sincronizar perfil na tabela users
+      const profile = await syncUserProfile(data.user);
+      
+      if (!profile) {
+        console.warn('⚠️ Perfil não foi criado, mas auth funcionou');
+      } else {
+        console.log('✅ Perfil criado:', profile.username);
+      }
+
       // onAuthStateChange vai atualizar o user automaticamente
+      console.log('✅ Cadastro concluído com sucesso!');
     } catch (error: any) {
-      console.error('Signup error:', error);
+      console.error('❌ Erro no cadastro:', error);
       throw new Error(error.message || 'Erro ao criar conta');
     } finally {
       setLoading(false);
@@ -182,11 +338,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signOut = async () => {
     try {
+      if (currentUserRef.current?.id) {
+        await markUserOffline(currentUserRef.current.id);
+      }
+
       await supabase.auth.signOut();
-      setUser(null);
+      updateUserState(null);
     } catch (error) {
       console.error('Signout error:', error);
-      setUser(null);
+      updateUserState(null);
     }
   };
 

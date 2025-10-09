@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { X, Users, Wifi, Radio, Eye, Mic, MicOff, Camera, CameraOff, MessageCircle } from 'lucide-react';
+import { X, Users, Wifi, Eye, Mic, MicOff, Camera, CameraOff, MessageCircle } from 'lucide-react';
 import { supabase } from '../../contexts/AuthContext';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -130,7 +130,8 @@ const NetPlaySession: React.FC<NetPlaySessionProps> = ({
             role: 'player',
             player_number: isHost ? 1 : 2,
             is_ready: false,
-            joined_at: new Date().toISOString()
+            joined_at: new Date().toISOString(),
+            game_id: gameId
           });
           setConnected(true);
         }
@@ -241,7 +242,7 @@ const NetPlaySession: React.FC<NetPlaySessionProps> = ({
       cleanup();
       channel.unsubscribe();
     };
-  }, [sessionId, user, isHost, connected]);
+  }, [sessionId, user, isHost, connected, gameId]);
 
   // Comunicação com o emulador via postMessage
   useEffect(() => {

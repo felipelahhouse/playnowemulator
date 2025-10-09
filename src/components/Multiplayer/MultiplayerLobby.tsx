@@ -82,27 +82,27 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
         .from('game_sessions')
         .select('*')
         .eq('status', 'waiting')
-        .eq('is_public', true)  // ✅ APENAS salas públicas aparecem no lobby
+        .eq('is_public', true)
         .order('created_at', { ascending: false });
 
       if (error) {
         console.error('[❌ LOBBY] Erro ao buscar salas:', error);
+        setLoading(false);
         return;
       }
 
       const sessionsData = data || [];
       console.log(`[✅ LOBBY] ${sessionsData.length} salas públicas encontradas`);
+      
       if (sessionsData.length > 0) {
-        console.log('[📋 LOBBY] Salas:', sessionsData.map(s => ({
-          id: s.id,
-          name: s.session_name,
-          is_public: s.is_public,
-          status: s.status,
-          players: `${s.current_players}/${s.max_players}`
-        })));
+        console.log('[📋 LOBBY] Salas encontradas:');
+        sessionsData.forEach((s, i) => {
+          console.log(`  ${i+1}. "${s.session_name}" - ${s.current_players}/${s.max_players} jogadores - Status: ${s.status} - Pública: ${s.is_public}`);
+        });
       } else {
-        console.log('[ℹ️ LOBBY] Nenhuma sala pública encontrada. Verifique se há salas criadas com is_public=true e status=waiting');
+        console.log('[ℹ️ LOBBY] Nenhuma sala pública com status "waiting" encontrada');
       }
+
       const hostIds = Array.from(
         new Set(
           sessionsData
@@ -120,12 +120,13 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
           .in('id', hostIds);
 
         if (hostError) {
-          console.error('Error fetching hosts:', hostError);
+          console.error('[❌ LOBBY] Erro ao buscar hosts:', hostError);
         } else if (hosts) {
           hostMap = hosts.reduce((acc, host) => {
             acc[host.id] = { username: host.username };
             return acc;
           }, {} as Record<string, { username: string }>);
+          console.log(`[✅ LOBBY] ${hosts.length} hosts carregados`);
         }
       }
 
@@ -137,7 +138,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
           .in('id', gameIds);
 
         if (gameError) {
-          console.error('Error fetching games:', gameError);
+          console.error('[❌ LOBBY] Erro ao buscar jogos:', gameError);
         } else if (relatedGames) {
           gamesMap = relatedGames.reduce((acc, game) => {
             acc[game.id] = {
@@ -146,6 +147,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
             };
             return acc;
           }, {} as Record<string, { title: string; thumbnail_url?: string | null }>);
+          console.log(`[✅ LOBBY] ${relatedGames.length} jogos carregados`);
         }
       }
 
@@ -160,9 +162,10 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
         };
       });
 
+      console.log(`[✅ LOBBY] ${enrichedSessions.length} salas processadas e prontas para exibição`);
       setSessions(enrichedSessions);
     } catch (error) {
-      console.error('Error fetching sessions:', error);
+      console.error('[❌ LOBBY] Erro inesperado:', error);
     } finally {
       setLoading(false);
     }
@@ -177,13 +180,15 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
   };
 
   const createSession = async () => {
-    console.log('🎮 Tentando criar sala...');
-    console.log('User:', user);
-    console.log('Game ID:', newSession.game_id);
-    console.log('Session Name:', newSession.session_name);
+    console.log('🎮 [CREATE] Iniciando criação de sala...');
+    console.log('📊 [CREATE] User:', user?.id, user?.username);
+    console.log('📊 [CREATE] Game ID:', newSession.game_id);
+    console.log('📊 [CREATE] Session Name:', newSession.session_name);
+    console.log('📊 [CREATE] Is Public:', newSession.is_public);
+    console.log('📊 [CREATE] Max Players:', newSession.max_players);
 
     if (creatingSession) {
-      console.warn('⚠️ Já existe uma criação de sala em andamento. Aguarde.');
+      console.warn('⚠️ [CREATE] Já existe uma criação em andamento. Aguarde.');
       return;
     }
 
@@ -191,21 +196,21 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
 
     if (!user || !user.id) {
       const message = 'Você precisa estar logado para criar uma sala.';
-      console.error('❌ Usuário não está logado!');
+      console.error('❌ [CREATE] Usuário não está logado!');
       setCreationError(message);
       return;
     }
     
     if (!newSession.game_id || newSession.game_id.trim() === '') {
       const message = 'Por favor, selecione um jogo antes de criar a sala.';
-      console.error('❌ Nenhum jogo selecionado!');
+      console.error('❌ [CREATE] Nenhum jogo selecionado!');
       setCreationError(message);
       return;
     }
     
     if (!newSession.session_name || newSession.session_name.trim() === '') {
       const message = 'Por favor, digite um nome para a sala.';
-      console.error('❌ Nome da sala vazio!');
+      console.error('❌ [CREATE] Nome da sala vazio!');
       setCreationError(message);
       return;
     }
@@ -213,19 +218,21 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
     setCreatingSession(true);
 
     try {
-      console.log('📝 Criando sessão no banco...');
+      console.log('📝 [CREATE] Validando jogo selecionado...');
       
-      // Validar que o jogo existe primeiro
+      // Validar que o jogo existe
       const { data: gameCheck, error: gameError } = await supabase
         .from('games')
-        .select('id')
+        .select('id, title')
         .eq('id', newSession.game_id)
         .single();
 
       if (gameError || !gameCheck) {
-        console.error('❌ Jogo não encontrado:', gameError);
-        throw new Error('O jogo selecionado não existe. Por favor, recarregue a página e tente novamente.');
+        console.error('❌ [CREATE] Jogo não encontrado:', gameError);
+        throw new Error('O jogo selecionado não existe. Recarregue a página e tente novamente.');
       }
+
+      console.log('✅ [CREATE] Jogo validado:', gameCheck.title);
 
       const payload = {
         host_user_id: user.id,
@@ -237,7 +244,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
         status: 'waiting'
       };
 
-      console.log('📤 Payload:', JSON.stringify(payload, null, 2));
+      console.log('📤 [CREATE] Criando sessão com payload:', JSON.stringify(payload, null, 2));
 
       const { data, error } = await supabase
         .from('game_sessions')
@@ -246,7 +253,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
         .single();
 
       if (error) {
-        console.error('❌ Erro detalhado ao criar sessão:', {
+        console.error('❌ [CREATE] Erro ao criar sessão:', {
           message: error.message,
           details: error.details,
           hint: error.hint,
@@ -259,8 +266,16 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
         throw new Error('Sessão criada mas sem dados retornados.');
       }
 
-      console.log('✅ Sessão criada com sucesso:', data);
-      console.log('👥 Adicionando jogador à sessão...');
+      console.log('✅ [CREATE] Sessão criada com sucesso!');
+      console.log('📋 [CREATE] Dados da sessão:', {
+        id: data.id,
+        name: data.session_name,
+        is_public: data.is_public,
+        status: data.status,
+        max_players: data.max_players
+      });
+
+      console.log('👥 [CREATE] Adicionando jogador à sessão...');
 
       const { error: playerError } = await supabase
         .from('session_players')
@@ -271,11 +286,10 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
         });
 
       if (playerError) {
-        console.error('❌ Erro ao adicionar jogador:', playerError);
-        // Não bloquear aqui - a sala foi criada, só não adicionou o player
-        console.warn('⚠️ Sala criada mas falhou ao adicionar jogador. Continuando...');
+        console.error('❌ [CREATE] Erro ao adicionar jogador:', playerError);
+        console.warn('⚠️ [CREATE] Sala criada mas falhou ao adicionar jogador. Continuando...');
       } else {
-        console.log('✅ Jogador adicionado com sucesso!');
+        console.log('✅ [CREATE] Jogador adicionado com sucesso!');
       }
 
       // Limpar formulário
@@ -286,22 +300,24 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
         max_players: 4
       });
 
-      // Recarregar lista de salas
+      console.log('🔄 [CREATE] Recarregando lista de salas...');
       await fetchSessions();
 
       // Fechar modal
       setShowCreateModal(false);
       
-      console.log('🚀 Abrindo sessão:', data.id);
+      console.log('🚀 [CREATE] Abrindo sessão:', data.id);
       
-      // Abrir a sala
-      onJoinSession(data.id);
+      // Pequeno delay para garantir que a sala foi salva
+      setTimeout(() => {
+        onJoinSession(data.id);
+      }, 500);
       
     } catch (error: any) {
-      console.error('❌ Erro capturado ao criar sessão:', error);
+      console.error('❌ [CREATE] Erro capturado:', error);
       const friendlyMessage = getFriendlyErrorMessage(error);
       setCreationError(friendlyMessage);
-      console.error('💬 Mensagem amigável:', friendlyMessage);
+      console.error('💬 [CREATE] Mensagem amigável:', friendlyMessage);
     } finally {
       setCreatingSession(false);
     }
