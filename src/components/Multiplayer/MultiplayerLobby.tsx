@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Users, Lock, Unlock, Play, Clock, Radio, Crown } from 'lucide-react';
+import { X, Users, Lock, Unlock, Play, Clock, Radio, Crown, Loader2 } from 'lucide-react';
 import { supabase } from '../../contexts/AuthContext';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -39,6 +39,8 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
     is_public: true,
     max_players: 4
   });
+  const [creatingSession, setCreatingSession] = useState(false);
+  const [creationError, setCreationError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchSessions();
@@ -114,67 +116,101 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
     console.log('User:', user);
     console.log('Game ID:', newSession.game_id);
     console.log('Session Name:', newSession.session_name);
-    
+
+    if (creatingSession) {
+      console.warn('⚠️ Já existe uma criação de sala em andamento. Aguarde.');
+      return;
+    }
+
+    setCreationError(null);
+
     if (!user) {
+      const message = 'Você precisa estar logado para criar uma sala.';
       console.error('❌ Usuário não está logado!');
-      alert('Você precisa estar logado para criar uma sala');
+      setCreationError(message);
+      alert(message);
       return;
     }
     
     if (!newSession.game_id) {
+      const message = 'Por favor, selecione um jogo antes de criar a sala.';
       console.error('❌ Nenhum jogo selecionado!');
-      alert('Por favor, selecione um jogo');
+      setCreationError(message);
+      alert(message);
       return;
     }
     
     if (!newSession.session_name) {
+      const message = 'Por favor, digite um nome para a sala.';
       console.error('❌ Nome da sala vazio!');
-      alert('Por favor, digite um nome para a sala');
+      setCreationError(message);
+      alert(message);
       return;
     }
 
+    setCreatingSession(true);
+
     try {
       console.log('📝 Criando sessão no banco...');
+      const payload = {
+        host_id: user.id,
+        game_id: newSession.game_id,
+        session_name: newSession.session_name.trim(),
+        is_public: newSession.is_public,
+        max_players: newSession.max_players,
+        current_players: 1,
+        status: 'waiting'
+      };
+
       const { data, error } = await supabase
         .from('game_sessions')
-        .insert({
-          host_id: user.id,
-          game_id: newSession.game_id,
-          session_name: newSession.session_name,
-          is_public: newSession.is_public,
-          max_players: newSession.max_players,
-          current_players: 1,
-          status: 'waiting'
-        })
+        .insert(payload)
         .select()
         .single();
 
-      if (error) {
+      if (error || !data) {
         console.error('❌ Erro ao criar sessão:', error);
-        throw error;
+        throw error || new Error('Não foi possível criar a sessão.');
       }
 
       console.log('✅ Sessão criada:', data);
       console.log('👥 Adicionando jogador à sessão...');
 
-      const { error: playerError } = await supabase.from('session_players').insert({
-        session_id: data.id,
-        user_id: user.id,
-        player_number: 1
-      });
+      const { error: playerError } = await supabase
+        .from('session_players')
+        .insert({
+          session_id: data.id,
+          user_id: user.id,
+          player_number: 1
+        });
 
       if (playerError) {
         console.error('❌ Erro ao adicionar jogador:', playerError);
+        setCreationError(getFriendlyErrorMessage(playerError));
       } else {
         console.log('✅ Jogador adicionado!');
+        setCreationError(null);
       }
+
+      setNewSession({
+        game_id: '',
+        session_name: '',
+        is_public: true,
+        max_players: 4
+      });
+
+      await fetchSessions();
 
       setShowCreateModal(false);
       console.log('🚀 Abrindo sessão:', data.id);
       onJoinSession(data.id);
     } catch (error) {
       console.error('❌ Error creating session:', error);
-      alert('Erro ao criar sala. Verifique o console (F12) para mais detalhes.');
+      const friendlyMessage = getFriendlyErrorMessage(error);
+      setCreationError(friendlyMessage);
+      alert(friendlyMessage);
+    } finally {
+      setCreatingSession(false);
     }
   };
 
@@ -226,6 +262,38 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
     return `${hours}h ago`;
   };
 
+  const getFriendlyErrorMessage = (error: any) => {
+    if (!error) return 'Erro desconhecido ao criar sala.';
+    const rawMessage = error.message || error.error_description || error.details || 'Erro desconhecido ao criar sala.';
+    if (typeof rawMessage !== 'string') {
+      return 'Erro ao criar sala. Tente novamente em alguns segundos.';
+    }
+
+    const message = rawMessage.toLowerCase();
+
+    if (message.includes('row-level security')) {
+      return 'Permissão negada para criar sala. Faça login novamente e tente de novo.';
+    }
+
+    if (message.includes('duplicate key value') && message.includes('session_players_session_id_user_id_key')) {
+      return 'Você já está participando desta sala.';
+    }
+
+    if (message.includes('duplicate key value') && message.includes('session_players_session_id_player_number_key')) {
+      return 'Número de jogador já utilizado nessa sala. Tente novamente em alguns segundos.';
+    }
+
+    if (message.includes('foreign key violation')) {
+      return 'Jogo selecionado não foi encontrado. Recarregue a página e selecione o jogo novamente.';
+    }
+
+    if (message.includes('invalid input syntax for type uuid')) {
+      return 'ID do jogo inválido. Recarregue a lista de jogos antes de criar a sala.';
+    }
+
+    return rawMessage;
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-xl flex items-center justify-center p-4">
       <div className="relative w-full max-w-6xl bg-gray-900 rounded-3xl border-2 border-cyan-500/30 shadow-2xl shadow-cyan-500/20 overflow-hidden">
@@ -240,7 +308,7 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
             <div className="flex items-center gap-4">
               <button
                 onClick={() => setShowCreateModal(true)}
-                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl font-bold hover:shadow-xl hover:shadow-purple-500/50 transition-all duration-300 hover:scale-105"
+                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl font-bold hover:shadow-xl hover:shadow-purple-500/50 transition-all duration-300"
               >
                 <Crown className="w-5 h-5" />
                 <span>Criar Sala (HOST)</span>
@@ -499,16 +567,26 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
 
               <button
                 onClick={createSession}
-                disabled={!newSession.game_id || !newSession.session_name}
+                disabled={creatingSession || !newSession.game_id || !newSession.session_name}
                 className="w-full py-4 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl font-bold text-lg hover:shadow-xl hover:shadow-purple-500/50 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 title={
+                  creatingSession ? 'Criando sala...' :
                   !newSession.session_name ? 'Digite um nome para a sala' :
                   !newSession.game_id ? 'Selecione um jogo' :
                   'Clique para criar a sala'
                 }
               >
-                <Crown className="w-5 h-5" />
-                Criar Sala como HOST
+                {creatingSession ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span>Criando sala...</span>
+                  </>
+                ) : (
+                  <>
+                    <Crown className="w-5 h-5" />
+                    <span>Criar Sala como HOST</span>
+                  </>
+                )}
               </button>
               
               {/* Debug info */}
@@ -519,6 +597,13 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
                     {!newSession.session_name && <li>Nome da sala</li>}
                     {!newSession.game_id && <li>Selecione um jogo</li>}
                   </ul>
+                </div>
+              )}
+
+              {creationError && (
+                <div className="mt-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+                  <strong>❌ Erro ao criar sala:</strong>
+                  <span className="ml-1">{creationError}</span>
                 </div>
               )}
             </div>
