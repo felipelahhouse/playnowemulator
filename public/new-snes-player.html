@@ -153,7 +153,7 @@
             updateStatus('❌ Nenhuma ROM especificada');
             console.error('No ROM URL provided');
         } else {
-            // Configuração do EmulatorJS - MELHORADA PARA MOBILE
+            // Configuração do EmulatorJS - OTIMIZADA PARA MOBILE
             window.EJS_player = '#game';
             window.EJS_core = 'snes';
             window.EJS_gameUrl = romUrl;
@@ -165,20 +165,35 @@
             window.EJS_biosUrl = '';
             window.EJS_videoUrl = '';
             
-            // Configurações específicas para mobile
+            // Configurações CRÍTICAS para mobile
             if (isMobile || isTouch) {
-                console.log('[INFO] Aplicando configurações mobile');
+                console.log('[INFO] ✅ MOBILE DETECTADO - Aplicando configurações otimizadas');
                 window.EJS_mobile = true;
                 window.EJS_VirtualGamepadSettings = {
                     enabled: true,
-                    opacity: 0.7,
-                    size: 1.0
+                    opacity: 0.8,
+                    size: 1.2
                 };
-                // Ativa tela cheia automática em mobile
                 window.EJS_defaultControls = {
                     allowFullscreen: true,
                     fullscreenOnLoad: false
                 };
+                
+                // CRÍTICO: Desativa threads e features problemáticas em mobile
+                window.EJS_threads = false;
+                window.EJS_cacheBust = true;
+                window.EJS_multitap = false;
+                
+                // Reduz qualidade para melhor performance
+                window.EJS_resolution = 1; // Resolução nativa
+                window.EJS_smoothing = true;
+                
+                // Força recarga sem cache
+                window.EJS_forceLegacyAudio = true;
+                
+                console.log('[INFO] 📱 Threads desabilitados, cache desabilitado, controles virtuais ativados');
+            } else {
+                console.log('[INFO] 💻 DESKTOP DETECTADO - Configuração padrão');
             }
             
             // Configurações de interface
@@ -192,42 +207,72 @@
             // Volume padrão (mais baixo em mobile)
             window.EJS_defaultVolume = isMobile ? 0.5 : 0.7;
             
-            // Melhora performance em mobile
-            if (isMobile) {
-                window.EJS_threads = false; // Desativa threads em mobile para compatibilidade
-                window.EJS_cacheBust = true;
-            }
-            
             // Callbacks de estado
             window.EJS_onGameStart = function() {
-                console.log('[✓] Jogo iniciado com sucesso!');
+                console.log('[✓✓✓] 🎮 JOGO INICIADO COM SUCESSO!');
                 loading.classList.add('hidden');
                 notifyParent({ type: 'emulator-ready' });
                 
                 // Em mobile, mostra dica de controles virtuais
                 if (isMobile || isTouch) {
-                    console.log('[INFO] Controles virtuais ativados');
+                    console.log('[INFO] 📱 Controles virtuais ativados - Toque na tela para exibir');
                 }
             };
             
             window.EJS_ready = function() {
-                console.log('[✓] Emulador pronto!');
+                console.log('[✓] 🚀 Emulador pronto!');
                 updateStatus('Iniciando jogo...');
             };
             
             window.EJS_onLoadState = function() {
-                console.log('[✓] Estado carregado');
+                console.log('[✓] 💾 Estado carregado');
             };
             
             window.EJS_onSaveState = function() {
-                console.log('[✓] Estado salvo');
+                console.log('[✓] 💾 Estado salvo');
             };
+            
+            // ⏱️ TIMEOUT DE SEGURANÇA - Se não carregar em 30s em mobile, mostrar erro
+            if (isMobile || isTouch) {
+                setTimeout(function() {
+                    if (!loading.classList.contains('hidden')) {
+                        console.error('[❌] ⏱️ TIMEOUT: Jogo não carregou em 30 segundos');
+                        console.error('[❌] Possíveis causas:');
+                        console.error('[❌] 1. ROM muito grande para mobile');
+                        console.error('[❌] 2. Conexão lenta');
+                        console.error('[❌] 3. Navegador não compatível');
+                        console.error('[❌] 4. Memória insuficiente');
+                        
+                        updateStatus('❌ Timeout: Jogo não carregou. Tente recarregar a página ou use outro jogo.');
+                        notifyParent({ 
+                            type: 'emulator-error', 
+                            message: 'Timeout ao carregar jogo em mobile. Tente um jogo menor ou use WiFi.' 
+                        });
+                    }
+                }, 30000); // 30 segundos
+                
+                // Log de progresso a cada 5 segundos
+                let loadTime = 0;
+                const progressInterval = setInterval(function() {
+                    if (loading.classList.contains('hidden')) {
+                        clearInterval(progressInterval);
+                        return;
+                    }
+                    loadTime += 5;
+                    console.log(`[📊] Carregando... ${loadTime}s`);
+                    if (loadTime >= 30) {
+                        clearInterval(progressInterval);
+                    }
+                }, 5000);
+            }
             
             // Handler de erros melhorado
             window.addEventListener('error', function(event) {
-                console.error('[✗] Error:', event.error);
+                console.error('[✗] ❌ ERRO CAPTURADO:', event.error);
                 if (event.error && event.error.message) {
                     const errorMsg = event.error.message;
+                    console.error('[✗] Mensagem:', errorMsg);
+                    console.error('[✗] Stack:', event.error.stack);
                     updateStatus('❌ Erro: ' + errorMsg);
                     notifyParent({ 
                         type: 'emulator-error', 
