@@ -3,6 +3,7 @@ import { Search, Filter, Star, Users, Calendar, Gamepad2, Zap, TrendingUp, Radio
 import { supabase } from '../../contexts/AuthContext';
 import type { Game } from '../../types';
 import GamePlayer from './GamePlayer';
+import { useRealTimePlayers } from '../../hooks/useRealTimePlayers';
 
 interface GameLibraryProps {
   onStartStream?: (game: Game) => void;
@@ -19,6 +20,9 @@ const GameLibrary: React.FC<GameLibraryProps> = ({
   const [sortBy, setSortBy] = useState('popular');
   const [loading, setLoading] = useState(true);
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
+  
+  // Hook para jogadores online em tempo real
+  const { getPlayersForGame, getTotalOnlinePlayers } = useRealTimePlayers();
 
   // Mapeamento de capas dos jogos
   const gameCovers: Record<string, string> = {
@@ -246,7 +250,11 @@ const GameLibrary: React.FC<GameLibraryProps> = ({
           ) : (
             <>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-12">
-                {filteredGames.map((game, index) => (
+                {filteredGames.map((game, index) => {
+                  const playersOnThisGame = getPlayersForGame(game.id);
+                  const hasOnlinePlayers = playersOnThisGame.length > 0;
+                  
+                  return (
                   <div
                     key={game.id}
                     className="group relative bg-gradient-to-br from-gray-900 via-gray-900 to-black rounded-2xl border-2 border-gray-800 overflow-hidden hover:border-cyan-400/50 hover:shadow-2xl hover:shadow-cyan-400/20 transition-all duration-500 hover:scale-105 hover:-translate-y-2"
@@ -287,6 +295,41 @@ const GameLibrary: React.FC<GameLibraryProps> = ({
                         <Star className="w-4 h-4 text-white fill-current" />
                         <span className="text-white text-sm font-bold">{game.rating}</span>
                       </div>
+                      
+                      {/* Indicador de Jogadores Online - Posicionado abaixo da estrela */}
+                      {hasOnlinePlayers && (
+                        <div className="absolute top-14 right-3 z-10">
+                          <div className="flex flex-col items-end gap-2">
+                            <div className="flex items-center gap-2 px-3 py-1.5 bg-green-500/90 backdrop-blur-sm border border-green-400/50 rounded-full shadow-lg shadow-green-500/50">
+                              <div className="relative flex items-center">
+                                <div className="w-2 h-2 bg-green-300 rounded-full animate-pulse" />
+                                <div className="absolute inset-0 w-2 h-2 bg-green-300 rounded-full animate-ping" />
+                              </div>
+                              <span className="text-white text-xs font-bold">
+                                {playersOnThisGame.length}
+                              </span>
+                            </div>
+                            
+                            {/* Avatares dos jogadores */}
+                            <div className="flex -space-x-2">
+                              {playersOnThisGame.slice(0, 3).map((player) => (
+                                <div
+                                  key={player.id}
+                                  className="w-7 h-7 rounded-full border-2 border-gray-900 bg-gradient-to-br from-cyan-400 to-purple-400 flex items-center justify-center text-white text-xs font-bold shadow-lg"
+                                  title={player.username}
+                                >
+                                  {player.username[0].toUpperCase()}
+                                </div>
+                              ))}
+                              {playersOnThisGame.length > 3 && (
+                                <div className="w-7 h-7 rounded-full border-2 border-gray-900 bg-gray-700 flex items-center justify-center text-white text-xs font-bold shadow-lg">
+                                  +{playersOnThisGame.length - 3}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <div className="relative p-5">
@@ -346,7 +389,8 @@ const GameLibrary: React.FC<GameLibraryProps> = ({
                       <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-cyan-400/10 via-purple-400/10 to-pink-400/10" />
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
 
               {filteredGames.length > 0 && (
@@ -360,6 +404,17 @@ const GameLibrary: React.FC<GameLibraryProps> = ({
                     <div className="text-center">
                       <div className="text-4xl font-black text-purple-400 mb-1">{games.reduce((sum, g) => sum + (g.play_count || 0), 0).toLocaleString()}</div>
                       <div className="text-sm text-gray-400 font-bold">Total Plays</div>
+                    </div>
+                    <div className="h-12 w-px bg-gray-700" />
+                    <div className="text-center">
+                      <div className="text-4xl font-black text-green-400 mb-1 flex items-center gap-2 justify-center">
+                        <div className="relative flex items-center">
+                          <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse" />
+                          <div className="absolute inset-0 w-3 h-3 bg-green-400 rounded-full animate-ping" />
+                        </div>
+                        {getTotalOnlinePlayers()}
+                      </div>
+                      <div className="text-sm text-gray-400 font-bold">Players Online</div>
                     </div>
                   </div>
                 </div>
