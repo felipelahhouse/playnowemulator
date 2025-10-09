@@ -5,7 +5,8 @@ import { useAuth } from '../../contexts/AuthContext';
 
 interface GameSession {
   id: string;
-  host_user_id: string;
+  host_user_id?: string;
+  host_id?: string;
   game_id: string;
   session_name: string;
   is_public: boolean;
@@ -26,6 +27,9 @@ interface MultiplayerLobbyProps {
   onClose: () => void;
   onJoinSession: (sessionId: string) => void;
 }
+
+const resolveHostId = (session: { host_user_id?: string; host_id?: string }) =>
+  session.host_user_id ?? session.host_id ?? null;
 
 const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSession }) => {
   const { user } = useAuth();
@@ -83,7 +87,13 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
       }
 
       const sessionsData = data || [];
-      const hostIds = Array.from(new Set(sessionsData.map((session) => session.host_user_id).filter(Boolean)));
+      const hostIds = Array.from(
+        new Set(
+          sessionsData
+            .map((session) => resolveHostId(session))
+            .filter((value): value is string => Boolean(value))
+        )
+      );
       const gameIds = Array.from(new Set(sessionsData.map((session) => session.game_id).filter(Boolean)));
 
       let hostMap: Record<string, { username: string }> = {};
@@ -123,11 +133,16 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
         }
       }
 
-      const enrichedSessions = sessionsData.map((session) => ({
-        ...session,
-        host: hostMap[session.host_user_id],
-        game: gamesMap[session.game_id]
-      }));
+      const enrichedSessions = sessionsData.map((session) => {
+        const resolvedHostId = resolveHostId(session);
+
+        return {
+          ...session,
+          host_user_id: resolvedHostId ?? session.host_user_id,
+          host: resolvedHostId ? hostMap[resolvedHostId] : undefined,
+          game: gamesMap[session.game_id]
+        };
+      });
 
       setSessions(enrichedSessions);
     } catch (error) {
@@ -414,7 +429,8 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {sessions.map((session) => {
                 const isFull = session.current_players >= session.max_players;
-                const isMySession = session.host_user_id === user?.id;
+                const resolvedHostId = resolveHostId(session);
+                const isMySession = resolvedHostId === user?.id;
                 
                 return (
                   <div

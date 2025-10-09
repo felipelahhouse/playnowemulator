@@ -4,7 +4,8 @@
   1. New Tables
     - `game_sessions`
       - `id` (uuid, primary key)
-      - `host_id` (uuid, references users)
+      - `host_user_id` (uuid, references users)
+      - `host_id` (generated alias for backward compatibility)
       - `game_id` (uuid, references games)
       - `session_name` (text)
       - `is_public` (boolean)
@@ -59,10 +60,10 @@
     - Add policies for chat participants to send and view messages
 */
 
--- Game Sessions Table
 CREATE TABLE IF NOT EXISTS game_sessions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  host_id uuid REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  host_user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  host_id uuid GENERATED ALWAYS AS (host_user_id) STORED,
   game_id uuid REFERENCES games(id) ON DELETE CASCADE NOT NULL,
   session_name text NOT NULL,
   is_public boolean DEFAULT true,
@@ -79,23 +80,23 @@ ALTER TABLE game_sessions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can create game sessions"
   ON game_sessions FOR INSERT
   TO authenticated
-  WITH CHECK (auth.uid() = host_id);
+  WITH CHECK (auth.uid() = host_user_id);
 
 CREATE POLICY "Users can view public game sessions"
   ON game_sessions FOR SELECT
   TO authenticated
-  USING (is_public = true OR host_id = auth.uid());
+  USING (is_public = true OR host_user_id = auth.uid());
 
 CREATE POLICY "Host can update their game sessions"
   ON game_sessions FOR UPDATE
   TO authenticated
-  USING (auth.uid() = host_id)
-  WITH CHECK (auth.uid() = host_id);
+  USING (auth.uid() = host_user_id)
+  WITH CHECK (auth.uid() = host_user_id);
 
 CREATE POLICY "Host can delete their game sessions"
   ON game_sessions FOR DELETE
   TO authenticated
-  USING (auth.uid() = host_id);
+  USING (auth.uid() = host_user_id);
 
 -- Session Players Table
 CREATE TABLE IF NOT EXISTS session_players (
@@ -122,7 +123,7 @@ CREATE POLICY "Users can view session players"
     EXISTS (
       SELECT 1 FROM game_sessions
       WHERE game_sessions.id = session_id
-      AND (game_sessions.is_public = true OR game_sessions.host_id = auth.uid())
+      AND (game_sessions.is_public = true OR game_sessions.host_user_id = auth.uid())
     )
   );
 
@@ -227,7 +228,7 @@ CREATE POLICY "Users can view chat messages"
 
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_game_sessions_status ON game_sessions(status);
-CREATE INDEX IF NOT EXISTS idx_game_sessions_host ON game_sessions(host_id);
+CREATE INDEX IF NOT EXISTS idx_game_sessions_host_user ON game_sessions(host_user_id);
 CREATE INDEX IF NOT EXISTS idx_live_streams_live ON live_streams(is_live);
 CREATE INDEX IF NOT EXISTS idx_live_streams_streamer ON live_streams(streamer_id);
 CREATE INDEX IF NOT EXISTS idx_stream_chat_stream ON stream_chat(stream_id);
