@@ -4,6 +4,8 @@ import { Gamepad as GamepadIcon, User, Settings, LogOut, Trophy, Users, Menu, X 
 import UserProfile from '../User/UserProfile';
 import SettingsModal from '../Settings/SettingsModal';
 import ProfileSettings from '../User/ProfileSettings';
+import LanguageSelector from '../Language/LanguageSelector';
+import ThemeSelector from '../Theme/ThemeSelector';
 
 const Header: React.FC = () => {
   const { user, signOut } = useAuth();
@@ -93,6 +95,12 @@ const Header: React.FC = () => {
             </nav>
 
             <div className="flex items-center gap-4">
+              {/* Language and Theme Selectors - Top Right */}
+              <div className="hidden md:flex items-center gap-2">
+                <LanguageSelector />
+                <ThemeSelector />
+              </div>
+              
               {user ? (
                 <>
                   {/* Online Players Counter */}

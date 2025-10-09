@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { AuthProvider, useAuth, supabase } from './contexts/AuthContext';
+import { useTheme } from './contexts/ThemeContext';
 import Header from './components/Layout/Header';
 import HeroSection from './components/Hero/HeroSection';
 import GameLibrary from './components/Games/GameLibrary';
@@ -9,6 +10,7 @@ import MultiplayerLobby from './components/Multiplayer/MultiplayerLobby';
 import NetPlaySession from './components/Multiplayer/NetPlaySession';
 import StreamerView from './components/Streaming/StreamerView';
 import StreamSetupModal, { StreamConfig } from './components/Streaming/StreamSetupModal';
+import HalloweenEffects from './components/Theme/HalloweenEffects';
 import type { Game } from './types';
 
 interface NetPlaySessionData {
@@ -31,6 +33,7 @@ interface StreamSetupData {
 
 function AppContent() {
   const { user, loading } = useAuth();
+  const { theme } = useTheme();
   const [currentView, setCurrentView] = useState<'streams' | 'games' | 'multiplayer'>('games');
   const [showMultiplayerLobby, setShowMultiplayerLobby] = useState(false);
   const [netPlaySession, setNetPlaySession] = useState<NetPlaySessionData | null>(null);
@@ -94,6 +97,9 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-black text-white">
+      {/* Halloween Effects - only shown when theme is halloween */}
+      {theme === 'halloween' && <HalloweenEffects />}
+      
       <Header />
 
       <main>
