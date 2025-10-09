@@ -65,12 +65,36 @@ const GamePlayer: React.FC<GamePlayerProps> = ({ gameTitle, romPath, onClose }) 
       setStatus('Baixando ROM do jogo...');
       setLoading(true);
 
+      // Detecta se é mobile
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      console.log(`[GAME PLAYER] Dispositivo: ${isMobile ? 'MOBILE' : 'DESKTOP'}`);
+
       if (romUrlRef.current) {
         URL.revokeObjectURL(romUrlRef.current);
         romUrlRef.current = null;
       }
 
-      const response = await fetch(romPath);
+      // ✅ MOBILE: Tenta usar versão descompactada primeiro
+      let finalRomPath = romPath;
+      if (isMobile && romPath.toLowerCase().endsWith('.zip')) {
+        // Tenta usar versão .smc/.sfc em vez de .zip
+        const unzippedPath = romPath.replace(/\.zip$/i, '.smc');
+        console.log(`[MOBILE] Tentando ROM descompactada: ${unzippedPath}`);
+        
+        try {
+          const testResponse = await fetch(unzippedPath, { method: 'HEAD' });
+          if (testResponse.ok) {
+            console.log('[MOBILE] ✅ ROM descompactada encontrada! Usando versão otimizada.');
+            finalRomPath = unzippedPath;
+          } else {
+            console.log('[MOBILE] ⚠️ ROM descompactada não encontrada. Usando ZIP (pode ser lento).');
+          }
+        } catch (e) {
+          console.log('[MOBILE] ⚠️ Erro ao verificar ROM descompactada. Usando ZIP.');
+        }
+      }
+
+      const response = await fetch(finalRomPath);
       if (!response.ok) {
         throw new Error(`Falha ao carregar ROM (${response.status})`);
       }
@@ -78,10 +102,13 @@ const GamePlayer: React.FC<GamePlayerProps> = ({ gameTitle, romPath, onClose }) 
       const buffer = await response.arrayBuffer();
 
       let romBytes = new Uint8Array(buffer);
-      let romName = romPath.split('/').pop() ?? 'game.smc';
+      let romName = finalRomPath.split('/').pop() ?? 'game.smc';
 
-      if (romPath.toLowerCase().endsWith('.zip')) {
+      // Só descompacta se realmente for ZIP
+      if (finalRomPath.toLowerCase().endsWith('.zip')) {
         setStatus('Extraindo ROM do arquivo ZIP...');
+        console.log('[ZIP] Descompactando arquivo...');
+        
         const zip = await JSZip.loadAsync(buffer);
         const romEntry = Object.values(zip.files).find(
           (file) => !file.dir && /(\.smc|\.sfc|\.fig)$/i.test(file.name)
@@ -94,6 +121,9 @@ const GamePlayer: React.FC<GamePlayerProps> = ({ gameTitle, romPath, onClose }) 
         romName = romEntry.name.split('/').pop() ?? romEntry.name;
         const romBuffer = await romEntry.async('arraybuffer');
         romBytes = new Uint8Array(romBuffer);
+        console.log('[ZIP] ✅ ROM extraída com sucesso');
+      } else {
+        console.log('[ROM] Usando arquivo direto (sem descompactação)');
       }
 
       if (romBytes.length < 1024) {
@@ -112,8 +142,9 @@ const GamePlayer: React.FC<GamePlayerProps> = ({ gameTitle, romPath, onClose }) 
       });
 
       setStatus('Preparando emulador...');
+      console.log(`[GAME PLAYER] ROM carregada: ${romName} (${(romBytes.length / 1024).toFixed(2)} KB)`);
     } catch (err) {
-      console.error(err);
+      console.error('[GAME PLAYER] ❌ Erro ao carregar ROM:', err);
       setError(err instanceof Error ? err.message : 'Não foi possível carregar o jogo');
       setLoading(false);
     }
