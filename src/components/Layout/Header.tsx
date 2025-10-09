@@ -18,6 +18,18 @@ const Header: React.FC = () => {
   const [scrolled, setScrolled] = useState(false);
   const [onlineCount, setOnlineCount] = useState(0);
 
+  const handleSignOut = async () => {
+    try {
+      setShowProfile(false);
+      setShowSettings(false);
+      setShowProfileSettings(false);
+      setShowDashboard(false);
+      await signOut();
+    } catch (error) {
+      console.error('Erro ao fazer logout:', error);
+    }
+  };
+
   // Track online users with Supabase Realtime
   useEffect(() => {
     const channel = supabase.channel('online-users');
@@ -127,6 +139,16 @@ const Header: React.FC = () => {
                     <Settings className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" />
                   </button>
 
+                  {/* Quick Sign Out */}
+                  <button
+                    onClick={handleSignOut}
+                    className="hidden lg:flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-red-500/10 to-rose-500/10 text-red-400 border border-red-500/30 rounded-xl hover:text-red-300 hover:border-red-400/60 hover:from-red-500/20 hover:to-rose-500/20 transition-all duration-300"
+                    title="Sair da conta"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span className="font-semibold">Sair</span>
+                  </button>
+
                   <div className="hidden sm:flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-green-500/10 to-emerald-500/10 backdrop-blur-sm rounded-full border border-green-500/30">
                     <div className="relative">
                       <div className="w-2.5 h-2.5 bg-green-400 rounded-full" />
@@ -170,11 +192,11 @@ const Header: React.FC = () => {
                           ))}
                           <hr className="my-2 border-gray-800" />
                           <button
-                            onClick={signOut}
+                            onClick={handleSignOut}
                             className="w-full flex items-center space-x-3 px-4 py-3 text-left text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-xl transition-all duration-200"
                           >
                             <LogOut className="w-5 h-5" />
-                            <span className="font-medium">Sign Out</span>
+                            <span className="font-medium">Sair</span>
                           </button>
                         </div>
                       </div>
@@ -227,6 +249,21 @@ const Header: React.FC = () => {
                 </a>
               ))}
             </nav>
+
+            {user && (
+              <div className="mt-8">
+                <button
+                  onClick={() => {
+                    setShowMobileMenu(false);
+                    handleSignOut();
+                  }}
+                  className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-red-500/15 to-rose-500/15 border border-red-500/40 rounded-xl text-red-300 font-semibold hover:from-red-500/25 hover:to-rose-500/25 hover:text-red-200 transition-all duration-300"
+                >
+                  <LogOut className="w-5 h-5" />
+                  <span>Sair da conta</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
