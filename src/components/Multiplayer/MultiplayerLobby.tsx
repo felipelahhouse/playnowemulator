@@ -75,18 +75,22 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
 
   const fetchSessions = async () => {
     try {
+      console.log('[🔍 LOBBY] Buscando salas públicas...');
+      
       const { data, error } = await supabase
         .from('game_sessions')
         .select('*')
         .eq('status', 'waiting')
+        .eq('is_public', true)  // ✅ APENAS salas públicas aparecem no lobby
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.error('Error fetching sessions:', error);
+        console.error('[❌ LOBBY] Erro ao buscar salas:', error);
         return;
       }
 
       const sessionsData = data || [];
+      console.log(`[✅ LOBBY] ${sessionsData.length} salas públicas encontradas`);
       const hostIds = Array.from(
         new Set(
           sessionsData
