@@ -50,6 +50,8 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ onClose }) => {
     if (!user) return;
 
     try {
+      console.log('[DASHBOARD] Buscando dados do usuário...');
+      
       // Buscar stats do usuário
       const { data: statsData, error: statsError } = await supabase
         .from('user_stats')
@@ -58,8 +60,21 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ onClose }) => {
         .single();
 
       if (statsError) {
-        console.error('Error fetching stats:', statsError);
+        console.warn('[DASHBOARD] ⚠️ Tabela user_stats não existe ou erro:', statsError.message);
+        // FALLBACK: Usar stats mockadas se tabela não existir
+        if (statsError.code === 'PGRST116' || statsError.message.includes('relation') || statsError.message.includes('does not exist')) {
+          console.log('[DASHBOARD] 📦 Usando dados mockados (migration não aplicada)');
+          setStats({
+            level: 1,
+            experience: 0,
+            total_playtime: 0,
+            games_played: 0,
+            multiplayer_sessions: 0,
+            streams_created: 0
+          });
+        }
       } else if (statsData) {
+        console.log('[DASHBOARD] ✅ Stats carregadas:', statsData);
         setStats(statsData);
       }
 
@@ -84,7 +99,12 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ onClose }) => {
         .limit(6);
 
       if (achError) {
-        console.error('Error fetching achievements:', achError);
+        console.warn('[DASHBOARD] ⚠️ Tabela achievements não existe ou erro:', achError.message);
+        // FALLBACK: Array vazio se tabela não existir
+        if (achError.code === 'PGRST116' || achError.message.includes('relation') || achError.message.includes('does not exist')) {
+          console.log('[DASHBOARD] 📦 Conquistas vazias (migration não aplicada)');
+          setAchievements([]);
+        }
       } else if (achievementsData) {
         const formatted = achievementsData
           .filter((item: any) => item.achievements)
@@ -92,6 +112,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ onClose }) => {
             ...item.achievements,
             unlocked_at: item.unlocked_at
           }));
+        console.log('[DASHBOARD] ✅ Conquistas carregadas:', formatted.length);
         setAchievements(formatted);
       }
 
@@ -112,7 +133,12 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ onClose }) => {
         .limit(5);
 
       if (histError) {
-        console.error('Error fetching history:', histError);
+        console.warn('[DASHBOARD] ⚠️ Tabela play_history não existe ou erro:', histError.message);
+        // FALLBACK: Array vazio se tabela não existir
+        if (histError.code === 'PGRST116' || histError.message.includes('relation') || histError.message.includes('does not exist')) {
+          console.log('[DASHBOARD] 📦 Histórico vazio (migration não aplicada)');
+          setRecentGames([]);
+        }
       } else if (historyData) {
         const formatted = historyData
           .filter((item: any) => item.games)
@@ -122,11 +148,23 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ onClose }) => {
             playtime: item.playtime,
             times_played: item.times_played
           }));
+        console.log('[DASHBOARD] ✅ Histórico carregado:', formatted.length);
         setRecentGames(formatted);
       }
 
     } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+      console.error('[DASHBOARD] ❌ Erro geral:', error);
+      // FALLBACK COMPLETO em caso de erro crítico
+      setStats({
+        level: 1,
+        experience: 0,
+        total_playtime: 0,
+        games_played: 0,
+        multiplayer_sessions: 0,
+        streams_created: 0
+      });
+      setAchievements([]);
+      setRecentGames([]);
     } finally {
       setLoading(false);
     }
@@ -187,6 +225,8 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ onClose }) => {
   const xpCurrent = stats.experience - ((stats.level - 1) * (stats.level - 1)) * 100;
   const xpNeeded = (stats.level * stats.level) * 100 - ((stats.level - 1) * (stats.level - 1)) * 100;
 
+  const isMockData = stats.level === 1 && stats.experience === 0 && stats.games_played === 0;
+
   return (
     <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-xl overflow-y-auto">
       <div className="container mx-auto max-w-7xl px-6 py-8">
@@ -202,6 +242,35 @@ const UserDashboard: React.FC<UserDashboardProps> = ({ onClose }) => {
             <X className="w-6 h-6 text-gray-400" />
           </button>
         </div>
+
+        {/* Alerta: Migration não aplicada */}
+        {isMockData && (
+          <div className="bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border-2 border-yellow-500/30 rounded-xl p-6 mb-6">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-full bg-yellow-500/20 flex items-center justify-center flex-shrink-0">
+                <Zap className="w-6 h-6 text-yellow-400" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-xl font-bold text-yellow-400 mb-2">
+                  ⚠️ Sistema de XP e Conquistas Desativado
+                </h3>
+                <p className="text-yellow-100/90 mb-3">
+                  As tabelas do banco de dados ainda não foram criadas. Para ativar o sistema completo de XP, conquistas, histórico e estatísticas:
+                </p>
+                <ol className="text-yellow-100/80 space-y-2 text-sm mb-4 ml-4 list-decimal">
+                  <li>Abra o <strong>Supabase Dashboard</strong>: <code className="bg-black/30 px-2 py-1 rounded">https://ffmyoutiutemmrmvxzig.supabase.co</code></li>
+                  <li>Vá em <strong>SQL Editor</strong> (menu lateral esquerdo)</li>
+                  <li>Clique em <strong>+ New Query</strong></li>
+                  <li>Cole todo o conteúdo do arquivo: <code className="bg-black/30 px-2 py-1 rounded">/supabase/migrations/20251009110000_add_user_features.sql</code></li>
+                  <li>Clique em <strong>RUN</strong> (botão verde)</li>
+                </ol>
+                <p className="text-yellow-100/70 text-xs">
+                  📄 Veja instruções detalhadas em <strong>ERRO_SQL_SUPABASE.md</strong>
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Player Card */}
         <div className="bg-gray-900/50 backdrop-blur-xl rounded-2xl border border-gray-800 p-6 mb-8">
