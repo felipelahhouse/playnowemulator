@@ -73,29 +73,63 @@ const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({ onClose, onJoinSess
     try {
       const { data, error } = await supabase
         .from('game_sessions')
-        .select(`
-          *,
-          host:users!game_sessions_host_id_fkey(username),
-          game:games!game_sessions_game_id_fkey(title, thumbnail_url)
-        `)
+        .select('*')
         .eq('status', 'waiting')
         .order('created_at', { ascending: false });
 
       if (error) {
         console.error('Error fetching sessions:', error);
-        // Tentar query alternativa se a primeira falhar
-        const { data: altData, error: altError } = await supabase
-          .from('game_sessions')
-          .select('*')
-          .eq('status', 'waiting')
-          .order('created_at', { ascending: false });
-        
-        if (!altError && altData) {
-          setSessions(altData || []);
-        }
-      } else {
-        setSessions(data || []);
+        return;
       }
+
+      const sessionsData = data || [];
+      const hostIds = Array.from(new Set(sessionsData.map((session) => session.host_id).filter(Boolean)));
+      const gameIds = Array.from(new Set(sessionsData.map((session) => session.game_id).filter(Boolean)));
+
+      let hostMap: Record<string, { username: string }> = {};
+      if (hostIds.length > 0) {
+        const { data: hosts, error: hostError } = await supabase
+          .from('users')
+          .select('id, username')
+          .in('id', hostIds);
+
+        if (hostError) {
+          console.error('Error fetching hosts:', hostError);
+        } else if (hosts) {
+          hostMap = hosts.reduce((acc, host) => {
+            acc[host.id] = { username: host.username };
+            return acc;
+          }, {} as Record<string, { username: string }>);
+        }
+      }
+
+      let gamesMap: Record<string, { title: string; thumbnail_url?: string | null }> = {};
+      if (gameIds.length > 0) {
+        const { data: relatedGames, error: gameError } = await supabase
+          .from('games')
+          .select('id, title, thumbnail_url, image_url')
+          .in('id', gameIds);
+
+        if (gameError) {
+          console.error('Error fetching games:', gameError);
+        } else if (relatedGames) {
+          gamesMap = relatedGames.reduce((acc, game) => {
+            acc[game.id] = {
+              title: game.title,
+              thumbnail_url: game.thumbnail_url ?? game.image_url ?? null
+            };
+            return acc;
+          }, {} as Record<string, { title: string; thumbnail_url?: string | null }>);
+        }
+      }
+
+      const enrichedSessions = sessionsData.map((session) => ({
+        ...session,
+        host: hostMap[session.host_id],
+        game: gamesMap[session.game_id]
+      }));
+
+      setSessions(enrichedSessions);
     } catch (error) {
       console.error('Error fetching sessions:', error);
     } finally {
