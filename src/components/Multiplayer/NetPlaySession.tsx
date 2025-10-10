@@ -95,6 +95,8 @@ const NetPlaySession: React.FC<NetPlaySessionProps> = ({
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [currentFrame, setCurrentFrame] = useState(0);
+  const [gameLoaded, setGameLoaded] = useState(false);
+  const [showWarning, setShowWarning] = useState(true);
 
   // Gerenciar presença e real-time com Firestore
   useEffect(() => {
@@ -323,6 +325,13 @@ const NetPlaySession: React.FC<NetPlaySessionProps> = ({
   // Comunicação com o emulador via postMessage
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
+      // Detectar quando o jogo carregar
+      if (event.data.type === 'emulator-ready' || event.data.type === 'game-loaded') {
+        setGameLoaded(true);
+        setConnected(true);
+        setTimeout(() => setShowWarning(false), 3000);
+      }
+      
       if (event.data.type === 'emulator-input') {
         broadcastInput(event.data);
       } else if (event.data.type === 'emulator-frame') {
@@ -515,13 +524,60 @@ const NetPlaySession: React.FC<NetPlaySessionProps> = ({
       {/* Main Content */}
       <div className="flex-1 flex">
         {/* Game Area */}
-        <div className="flex-1 flex items-center justify-center bg-black">
+        <div className="flex-1 flex items-center justify-center bg-black relative">
+          {/* Mensagem de aviso que aparece inicialmente */}
+          {showWarning && (
+            <div className="absolute top-8 left-1/2 transform -translate-x-1/2 z-10 bg-gray-900/95 px-6 py-4 rounded-xl border border-cyan-500 max-w-2xl animate-fade-in">
+              <div className="flex items-start gap-4">
+                <div className="text-3xl">🎮</div>
+                <div>
+                  <h4 className="text-white font-bold mb-2">Sala Multiplayer Criada!</h4>
+                  <p className="text-gray-300 text-sm mb-2">
+                    O jogo está carregando... Enquanto isso:
+                  </p>
+                  <ul className="text-gray-400 text-xs space-y-1 ml-4">
+                    <li>✅ Compartilhe o link da sala com seus amigos</li>
+                    <li>✅ Use o chat para se comunicar</li>
+                    <li>✅ {isHost ? 'Você é o HOST - o jogo rodará na sua tela' : 'Aguarde o host iniciar o jogo'}</li>
+                  </ul>
+                  <button
+                    onClick={() => setShowWarning(false)}
+                    className="mt-3 text-cyan-400 text-xs hover:text-cyan-300 transition-colors"
+                  >
+                    Entendi, fechar
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* Indicador de carregamento do jogo */}
+          {!gameLoaded && (
+            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-20 text-center">
+              <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-cyan-500 mx-auto mb-4"></div>
+              <p className="text-cyan-400 font-bold">Carregando jogo...</p>
+              <p className="text-gray-500 text-sm mt-2">
+                {players.length} jogador(es) na sala
+              </p>
+            </div>
+          )}
+          
           <iframe
             ref={iframeRef}
             title={`${gameTitle || 'NetPlay Game'} NetPlay`}
-            src={`/new-snes-player.html?rom=${encodeURIComponent(romPath)}&title=${encodeURIComponent(gameTitle || 'Multiplayer Game')}&netplay=true&session=${sessionId}`}
+            src={`/new-snes-player.html?rom=${encodeURIComponent(romPath)}&title=${encodeURIComponent(gameTitle || 'Multiplayer Game')}`}
             className="w-full h-full"
             allow="fullscreen"
+            onLoad={() => {
+              console.log('🎮 Iframe carregado');
+              // Dar tempo para o emulador inicializar
+              setTimeout(() => {
+                if (!gameLoaded) {
+                  setGameLoaded(true);
+                  setConnected(true);
+                }
+              }, 5000);
+            }}
           />
         </div>
 
